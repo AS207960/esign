@@ -1,0 +1,12 @@
+{% extends "email_base.txt" %}
+{% block content %}
+Your signature is requested on "{{ template_name }}". Please follow the link below to add your signature to the document.
+
+{{ signature_url }}
+
+The current document is attached to this email for your reference, along with the current envelope log.
+Everyone will receive the completed document once everyone has signed.
+
+Document hash: {{ current_doc_hash }}
+Log hash: {{ current_log_hash }}
+{% endblock content %}

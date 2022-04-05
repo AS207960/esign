@@ -1,0 +1,6 @@
+Hello,
+{% block content %}{% endblock %}
+Thanks,
+The AS207960 / Glauca Team
+as207960.net
+glauca.digital

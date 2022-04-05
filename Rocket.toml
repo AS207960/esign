@@ -1,0 +1,18 @@
+[global.databases.db]
+url = "postgres://postgres@localhost/as207960_esign"
+
+[debug]
+secret_key = "5wgweFk40X4dKh7Ds7G8cn/x3TTykhsYmH3B+v3XQ2o="
+files_key = "hcIyyVf74bYQK6bxdDmvgxsxI593+MjDCSXfXHhdZMQ="
+celery = { amqp_url = "amqp://localhost:5672/as207960_esign" }
+external_uri = "https://as207960-esign.eu.ngrok.io"
+
+[debug.oidc]
+issuer_url = "https://sso.as207960.net/auth/realms/dev"
+client_id = "esign"
+client_secret = "558ef97e-361a-42d7-8ddb-5881eff610df"
+
+[debug.smtp]
+server = "smime-relay.as207960.ltd.uk"
+port = 25
+use_tls = true

@@ -1,0 +1,31 @@
+{% extends "base" %}
+{% block title %}Envelopes{% endblock %}
+{% block content %}
+<div class="container">
+    <h2>Envelopes</h2>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+            <tr>
+                <th scope="col">Template Name</th>
+                <th scope="col">Created</th>
+                <th scope="col">Created by</th>
+                <th scope="col">Recipients</th>
+                <th scope="col"></th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for envelope in envelopes %}
+            <tr>
+                <td>{{ envelope.template.name }}</td>
+                <td>{{ envelope.create_log.timestamp | date(format="%Y-%m-%d %H:%M") }}</td>
+                <td>{{ envelope.created_recipient.email }}</td>
+                <td>{% for recipient in envelope.recipients %}{{ recipient.email }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                <td><a href="{{ envelope.url }}" class="btn btn-primary">View</a></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

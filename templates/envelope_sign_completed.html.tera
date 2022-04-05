@@ -1,0 +1,11 @@
+{% extends "base" %}
+{% block title %}{{ template.name }}{% endblock %}
+{% block content %}
+<div class="container">
+    <h2>{{ template.name }}</h2>
+    <h3>For: {{ envelope_recipient.email }}</h3>
+    <p class="lead">
+        It looks like you've already completed your part of this document, there's nothing else for you do!
+    </p>
+</div>
+{% endblock %}

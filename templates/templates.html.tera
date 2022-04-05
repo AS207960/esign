@@ -1,0 +1,29 @@
+{% extends "base" %}
+{% block title %}Templates{% endblock %}
+{% block content %}
+<div class="container">
+    <h2>Templates</h2>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+            <tr>
+                <th scope="col">Name</th>
+                <th scope="col"></th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for template in templates %}
+            <tr>
+                <td>{{ template.template.name }}</td>
+                <td>
+                    {% if can_send %}
+                        <a href="{{ template.url }}" class="btn btn-primary">Create envelope</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

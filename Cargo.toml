@@ -1,0 +1,51 @@
+[package]
+name = "as207960-esign"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rocket = { version = "0.5.0-rc.1", features = ["secrets", "json"] }
+rocket_dyn_templates = { version = "0.1.0-rc.1", features = ["tera"] }
+rocket_sync_db_pools = { version = "0.1.0-rc.1", features = ["diesel_postgres_pool"] }
+diesel = { version = "1", features = ["postgres", "uuidv07", "extras"] }
+diesel_migrations = "1"
+diesel-derive-enum = { version = "1", features = ["postgres"] }
+uuid = { version = "0.8", features = ["serde", "v4"] }
+serde = "1"
+base64 = "0.13"
+rand = "0.8"
+time = "0.2"
+hmac = "0.11"
+sha2 = "0.9"
+chrono = "0.4"
+itertools = "0.10"
+lopdf = "0.26"
+png = "0.17"
+deflate = "0.9"
+hex = "0.4"
+celery = "0.4.0-rcn.11"
+figment = "0.10"
+ipnetwork = "0.18"
+tokio = { version = "1", features = ["fs", "sync", "parking_lot"] }
+log = "0.4"
+pretty_env_logger = "0.4"
+r2d2 = "0.8"
+lazy_static = "1"
+tera = "1"
+lettre = { version = "0.10.0-rc.3", default_features = false, features = ["builder", "tokio1", "file-transport", "smtp-transport", "tokio1-native-tls"] }
+serde_json = "1"
+rocket-client-addr = "0.5"
+openidconnect = "2"
+openssl = "0"
+openssl-sys = { version = "=0.9.65", features = [] }
+libc = "0.2"
+foreign-types-shared = "0.1"
+
+#[profile.release]
+#strip = true
+#opt-level = "z"
+#lto = true
+#panic = "abort"
+
+[patch.crates-io]
+openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "0c761c8b5e2b6f18797b1cb06a6de06bf2957684" }

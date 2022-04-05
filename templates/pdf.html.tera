@@ -1,0 +1,96 @@
+<div class="pdf-container">
+    <div id="the-pdf"></div>
+    <button type="button" class="btn btn-primary w-100 my-3 btn-lg" id="submitButton">Submit</button>
+</div>
+
+<div class="modal fade signatureModal" id="signatureModal" tabindex="-1" role="dialog"
+     aria-labelledby="signatureModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="signatureModalLabel">Enter your signature</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-pills mb-3" id="signatureTab" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active signatureTypeBtn" id="signatureTypeTab" data-bs-toggle="pill"
+                           href="#signatureType" role="tab" aria-controls="signatureType" aria-selected="true">Type</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link signatureDrawBtn" id="signatureDrawTab" data-bs-toggle="pill"
+                           href="#signatureDraw" role="tab" aria-controls="pills-profile" aria-selected="false">Draw</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link signatureUploadBtn" id="signatureUploadTab" data-bs-toggle="pill"
+                           href="#signatureUpload" role="tab" aria-controls="pills-contact"
+                           aria-selected="false">Upload</a>
+                    </li>
+                </ul>
+                <div class="tab-content" id="signatureTabContent">
+                    <div class="tab-pane fade show active signatureType" id="signatureType" role="tabpanel"
+                         aria-labelledby="signatureTypeTab">
+                        <div>
+                            <label for="signatureTypeInput">Your name: </label>
+                            <input type="text" id="signatureTypeInput" class="signatureTypeInput"><br/>
+                            <canvas class="signatureTypeCanvas"></canvas>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade signatureDraw" id="signatureDraw" role="tabpanel"
+                         aria-labelledby="signatureDrawTab">
+                        <div>
+                            <button type="button" class="btn btn-primary signatureDrawResetBtn">Reset</button>
+                            <canvas class="signatureDrawCanvas"></canvas>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade signatureUpload" id="signatureUpload" role="tabpanel"
+                         aria-labelledby="signatureUploadTab">
+                        <div class="signatureUploadDrop">
+                            <h5>Drag and drop an image here</h5>
+                            <h4>OR</h4>
+                            <input type="file" accept="image/*"/>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary btn-save">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="loadingModal" tabindex="-1" role="dialog" aria-labelledby="loadingModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="loadingModalLabel">Loading</h5>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-center">
+                    <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="errorModal" tabindex="-1" role="dialog" aria-labelledby="errorModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content border-danger">
+            <div class="modal-header">
+                <h5 class="modal-title" id="errorModalLabel">Uh oh!</h5>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-center">
+                    <p id="errorModalMsg"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

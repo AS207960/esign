@@ -1,0 +1,21 @@
+{% extends "email_base.html" %}
+{% block content %}
+    <p>
+        Your signature is requested on "{{ template_name }}". Please follow the link below
+        to add your signature to the document.
+    </p>
+    <a href="{{ signature_url }}"
+       style="color: #fff;background-color: #3182CE;text-align: center;text-decoration: none;box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);border-radius: .5rem;display: block;padding: 0.5rem 1rem;font-size: 1.25rem;line-height: 1.5;margin-top: 15px;">
+        Sign document
+    </a>
+    <p>
+        The current document is attached to this email for your reference, along with the current envelope log.
+        Everyone will receive the completed document once everyone has signed.
+    </p>
+    <p>
+        <b>Document hash</b>:<br/>
+        <span style="word-break: break-all">{{ current_doc_hash }}</span><br/>
+        <b>Log hash</b>:<br/>
+        <span style="word-break: break-all">{{ current_log_hash }}</span>
+    </p>
+{% endblock content %}

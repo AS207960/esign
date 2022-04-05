@@ -1,0 +1,8 @@
+{% extends "email_base.txt" %}
+{% block content %}
+All parties have now completed "{{ template_name }}".
+The final document is attached to this email, along with the envelope log.
+
+Document hash: {{ doc_hash }}
+Log hash: {{ log_hash }}
+{% endblock content %}

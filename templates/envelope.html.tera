@@ -1,0 +1,60 @@
+{% extends "base" %}
+{% block title %}{{ template.name }} | Envelopes{% endblock %}
+{% block content %}
+<div class="container">
+    <h2><a href="/envelope">Envelopes</a> > {{ template.name }}</h2>
+    <p>
+        <b>Base file:</b> <a href="/files/{{ envelope.base_file }}?key={{ base_file_key }}">{{ envelope.base_file }}</a><br/>
+        <b>Current file:</b> <a href="/files/{{ envelope.current_file }}?key={{ current_file_key }}">{{ envelope.current_file }}</a>
+    </p>
+    <h3>Recipients</h3>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+            <tr>
+                <th scope="col">Email</th>
+                <th scope="col">Completed</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for recipient in recipients %}
+            <tr>
+                <td>{{ recipient.email }}</td>
+                <td>{% if recipient.completed %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-danger">No</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <h3>Log</h3>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+            <tr>
+                <th scope="col">Timestamp</th>
+                <th scope="col">Recipient</th>
+                <th scope="col">Entry type</th>
+                <th scope="col">IP Address</th>
+                <th scope="col">User agent</th>
+                <th scope="col">Current document</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for log_entry in log_entries %}
+            <tr>
+                <td>{{ log_entry.0.timestamp | date(format="%Y-%m-%d %H:%M") }}</td>
+                <td>{{ log_entry.1.email }}</td>
+                <td>{{ log_entry.0.entry_type }}</td>
+                <td>{{ log_entry.0.ip_address }}</td>
+                <td><code>{{ log_entry.0.user_agent }}</code></td>
+                <td>
+                    <a href="/files/{{ log_entry.0.current_file }}?key={{ log_entry.2 }}">{{ log_entry.0.current_file }}</a><br/>
+                    <code class="text-break">{{ log_entry.0.current_document_hash }}</code>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

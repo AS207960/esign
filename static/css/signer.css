@@ -1,0 +1,113 @@
+.recipients {
+    max-width: 850px;
+    margin: 25px auto;
+}
+
+input:not([type=file]):invalid {
+    border: 1px solid red;
+    outline: none;
+}
+
+input:not([type=file]):valid {
+    border: 1px solid green;
+    outline: none;
+}
+
+.pdf-container {
+    background: #fff;
+    padding: 10px;
+    max-width: 850px;
+    margin: 0 auto;
+}
+
+#the-pdf {
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+}
+
+#the-pdf .pdf-page {
+    position: relative;
+}
+
+#the-pdf .pdf-page > span {
+    text-align: center;
+    display: block;
+}
+
+#the-pdf .pdf-page span.future {
+    background: #8758cf;
+    padding: 0 5px;
+}
+
+#the-pdf .pdf-page canvas {
+    max-width: 100%;
+}
+
+#the-pdf .pdf-page .annotations {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+#the-pdf .pdf-page .annotations > * {
+    position: absolute;
+}
+
+#the-pdf .pdf-page .annotations > *:not(.sig-img) {
+    border-radius: .5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+#the-pdf .pdf-page .annotations button {
+    background: rgba(49, 130, 206, 0.7);
+    border: 1px solid #3182ce;
+    color: #000;
+}
+
+#the-pdf .pdf-page .annotations .sig-img span{
+    background: #eee;
+    color: #000;
+    text-align: center;
+    font-size: 15px;
+    border: 1px solid red;
+    border-radius: 50%;
+    top: 0;
+    right: 0;
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+}
+
+.signatureModal .signatureType > div, .signatureModal .signatureDraw > div, .signatureModal .signatureUpload > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.signatureModal .signatureUpload .signatureUploadDrop {
+    border-radius: 1.5rem;
+    border: 3px dashed #3182ce;
+    padding: 15px;
+    align-items: center;
+}
+
+.signatureModal input:not([type=file]) {
+    border-radius: .5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border: none;
+    padding: 0 5px;
+}
+
+.signatureModal .signatureTypeCanvas, .signatureModal .signatureDrawCanvas {
+    border: 1px solid #3182ce;
+    border-radius: .5rem;
+    width: 100%;
+    margin-top: 15px;
+}
+
+.signatureModal .signatureDrawCanvas {
+    cursor: crosshair;
+}

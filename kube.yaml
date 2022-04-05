@@ -1,0 +1,305 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: esign-files
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: esign-conf
+data:
+  Rocket.toml: |
+    [default]
+    external_uri = "https://esign.as207960.net"
+
+    [default.smtp]
+    server = "smime-relay.as207960.ltd.uk"
+    port = 25
+    use_tls = true
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: esign-certs
+data:
+  "signing.pem": |
+    -----BEGIN CERTIFICATE-----
+    MIIDoTCCAyigAwIBAgIQEdznyJwZHlbj6Q+rf/AsJjAKBggqhkjOPQQDAzB+MQsw
+    CQYDVQQGEwJVUzEOMAwGA1UECAwFVGV4YXMxEDAOBgNVBAcMB0hvdXN0b24xETAP
+    BgNVBAoMCFNTTCBDb3JwMTowOAYDVQQDDDFTU0wuY29tIENsaWVudCBDZXJ0aWZp
+    Y2F0ZSBJbnRlcm1lZGlhdGUgQ0EgRUNDIFIyMB4XDTIyMDMxMDE1MjIwNFoXDTIz
+    MDMxMDE1MjIwNFowWzELMAkGA1UEBhMCR0IxEDAOBgNVBAcMB0NhcmRpZmYxHDAa
+    BgNVBAoME0FTMjA3OTYwIENZRllOR0VESUcxHDAaBgNVBAMME0FTMjA3OTYwIENZ
+    RllOR0VESUcwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAAS+R6V+SAKRc2MSzT68Hhnv
+    E5y3+VlhmwyRgxEqjI4UwZGMtd5XWDFhD+X/PfdcOMhzJjN9PeevCpZ346Nmwg1f
+    2ZRq+HwpHZgCecdfWduy+ccH+FoTDRgxAZuI/4+T2CejggGMMIIBiDAMBgNVHRMB
+    Af8EAjAAMB8GA1UdIwQYMBaAFHcoNRRSZVUP2CFnn6aiSjWRgSVUMFYGCCsGAQUF
+    BwEBBEowSDBGBggrBgEFBQcwAoY6aHR0cDovL2NlcnQuc3NsLmNvbS9TU0xjb20t
+    U3ViQ0EtY2xpZW50Q2VydC1FQ0MtMzg0LVIyLmNlcjBXBgNVHSAEUDBOMDwGDCsG
+    AQQBgqkwAQMEATAsMCoGCCsGAQUFBwIBFh5odHRwczovL3d3dy5zc2wuY29tL3Jl
+    cG9zaXRvcnkwDgYMKwYBBAGCqTABAwUBMCoGA1UdJQQjMCEGCCsGAQUFBwMCBgor
+    BgEEAYI3CgMMBgkqhkiG9y8BAQUwSwYDVR0fBEQwQjBAoD6gPIY6aHR0cDovL2Ny
+    bHMuc3NsLmNvbS9TU0xjb20tU3ViQ0EtY2xpZW50Q2VydC1FQ0MtMzg0LVIyLmNy
+    bDAdBgNVHQ4EFgQUdkBMXXfW0BHuvA84bgScCEupLhIwDgYDVR0PAQH/BAQDAgbA
+    MAoGCCqGSM49BAMDA2cAMGQCMDgcRgTsrUHk7Ie0P5UoP/XLKwTGae5QRuG0PLEO
+    ZqGPP5jcW0Zana77i62UvQqV4AIwV4OfCF/s+cadmFyPw+E/7ydeo6IF1r6HCRIp
+    8p36rsvc3mqgJfwJz4giCml/m4wc
+    -----END CERTIFICATE-----
+  "int.pem": |
+    -----BEGIN CERTIFICATE-----
+    MIIDkzCCAxqgAwIBAgIQJ6uF/gMxCfH9tQMtV30gODAKBggqhkjOPQQDAzB8MQsw
+    CQYDVQQGEwJVUzEOMAwGA1UECAwFVGV4YXMxEDAOBgNVBAcMB0hvdXN0b24xGDAW
+    BgNVBAoMD1NTTCBDb3Jwb3JhdGlvbjExMC8GA1UEAwwoU1NMLmNvbSBSb290IENl
+    cnRpZmljYXRpb24gQXV0aG9yaXR5IEVDQzAeFw0xOTAzMDcxOTM0MDRaFw0zNDAz
+    MDMxOTM0MDRaMH4xCzAJBgNVBAYTAlVTMQ4wDAYDVQQIDAVUZXhhczEQMA4GA1UE
+    BwwHSG91c3RvbjERMA8GA1UECgwIU1NMIENvcnAxOjA4BgNVBAMMMVNTTC5jb20g
+    Q2xpZW50IENlcnRpZmljYXRlIEludGVybWVkaWF0ZSBDQSBFQ0MgUjIwdjAQBgcq
+    hkjOPQIBBgUrgQQAIgNiAASef3xFPNLLdSgcAUk1vIep1NKM7aEZo8N5C2Efwn8+
+    m5wcI39ei9+9+6mMNqoElAVZojJZ519XV9rrwSesZNrgtVVNFMpPmIBPfk5ACQwi
+    OugouQ7UkRAThBQjfo0vgGyjggFdMIIBWTASBgNVHRMBAf8ECDAGAQH/AgEAMB8G
+    A1UdIwQYMBaAFILRhXMw5zUE044CkvvlpNHEIejNMHgGCCsGAQUFBwEBBGwwajBG
+    BggrBgEFBQcwAoY6aHR0cDovL3d3dy5zc2wuY29tL3JlcG9zaXRvcnkvU1NMY29t
+    LVJvb3RDQS1FQ0MtMzg0LVIxLmNydDAgBggrBgEFBQcwAYYUaHR0cDovL29jc3Bz
+    LnNzbC5jb20wEQYDVR0gBAowCDAGBgRVHSAAMCkGA1UdJQQiMCAGCCsGAQUFBwMC
+    BggrBgEFBQcDBAYKKwYBBAGCNwoDDDA7BgNVHR8ENDAyMDCgLqAshipodHRwOi8v
+    Y3Jscy5zc2wuY29tL3NzbC5jb20tZWNjLVJvb3RDQS5jcmwwHQYDVR0OBBYEFHco
+    NRRSZVUP2CFnn6aiSjWRgSVUMA4GA1UdDwEB/wQEAwIBhjAKBggqhkjOPQQDAwNn
+    ADBkAjBP+Mnn2uq5z3DmuZFIewdGXDNHQnFdbDc0C1mFtd+HMgaq/HhTjWmbVOyL
+    7+hL6PoCMGmfO1R5xV9sCpAU8JZekqD/2UwDW8QE5LYnF0/FnVzHKm21Q2TNM5FE
+    dXjc6hcemQ==
+    -----END CERTIFICATE-----
+  "root.pem": |
+    -----BEGIN CERTIFICATE-----
+    MIIFCTCCAvGgAwIBAgIIPyxgjFz5YyEwDQYJKoZIhvcNAQELBQAwfDELMAkGA1UE
+    BhMCVVMxDjAMBgNVBAgMBVRleGFzMRAwDgYDVQQHDAdIb3VzdG9uMRgwFgYDVQQK
+    DA9TU0wgQ29ycG9yYXRpb24xMTAvBgNVBAMMKFNTTC5jb20gUm9vdCBDZXJ0aWZp
+    Y2F0aW9uIEF1dGhvcml0eSBSU0EwHhcNMTkwMjE0MTgwNzA4WhcNMjcwMjEyMTgw
+    NzA4WjB8MQswCQYDVQQGEwJVUzEOMAwGA1UECAwFVGV4YXMxEDAOBgNVBAcMB0hv
+    dXN0b24xGDAWBgNVBAoMD1NTTCBDb3Jwb3JhdGlvbjExMC8GA1UEAwwoU1NMLmNv
+    bSBSb290IENlcnRpZmljYXRpb24gQXV0aG9yaXR5IEVDQzB2MBAGByqGSM49AgEG
+    BSuBBAAiA2IABEVuqVDEpiM2nl8ojRfLliJkP9x6jh3MCLOicSS6jkm5BBtHllir
+    LZXI7Z4INcgn64mMU1jrYor+8FsPazFSY0E7ic3s7LaNGdM0B9y7xgZ/wkWV7Mt/
+    qCPgCemB+vNH06OCATswggE3MA8GA1UdEwEB/wQFMAMBAf8wHwYDVR0jBBgwFoAU
+    3QQJB6L1en1SUxKSle44gCUNplkwgYMGCCsGAQUFBwEBBHcwdTBRBggrBgEFBQcw
+    AoZFaHR0cDovL3d3dy5zc2wuY29tL3JlcG9zaXRvcnkvU1NMY29tUm9vdENlcnRp
+    ZmljYXRpb25BdXRob3JpdHlSU0EuY3J0MCAGCCsGAQUFBzABhhRodHRwOi8vb2Nz
+    cHMuc3NsLmNvbTARBgNVHSAECjAIMAYGBFUdIAAwOwYDVR0fBDQwMjAwoC6gLIYq
+    aHR0cDovL2NybHMuc3NsLmNvbS9zc2wuY29tLXJzYS1Sb290Q0EuY3JsMB0GA1Ud
+    DgQWBBSC0YVzMOc1BNOOApL75aTRxCHozTAOBgNVHQ8BAf8EBAMCAYYwDQYJKoZI
+    hvcNAQELBQADggIBAPC4p7e2/AfR2M/1S1dX6tXCKBNJmezj60laF+VZgx6mWPUE
+    IfVy5TPHGIjEQHucWLUrgvKpWhIqRqxAXAIYfLetsWMNHpZcbgvyMSc5ZnZgGJFp
+    EMuaCGPpmTYNvg0KE+Sp3mExmC4jqeebN2kFQnaF99rGxCKGwXy7s9wvpVM0jHqU
+    YU75uN2Wlr0SF/cdPk/RnQDSQf97KXlIqXVCUnwu9oobgOl8ULITcDLYqtvbXrQb
+    1lFrkjYQ6jIU7wNi2URiMPuwJ9MhKWS6Bt2CMUisnIVp2PZ5LkX1lBQdmNWmBg6w
+    bgg3Ya2g8hPIwwyq850O7u9qrhAsjYkFJJVxlb0Mzvz675nLzzGzdklLY0GADaDL
+    K5yuVoMcuijaUnKNQHnwTXrDiMZOgtTa7+UNmBjA5VAwwN24wl5UgYw8plgnCIQy
+    V4ltHNI0EyKX5NyOHtfT2MLelI4rqBsleMIF065b1A7IQb/sgrSpq0dlCRMa8YGG
+    mafxhWKTFABz0ES2MrXm3falKY/fp48TKNTnYU6QIMO6evNNXbxtM2gGVN+a9zIh
+    Ghfxg5Adv4gju/886VksL+4YrGZvTHB+EtHCD/jvKOslGAitujP0yQ3bCSgZbkyQ
+    S2eC1h8SyRIbOcb+8WsL0vXJkpz0eK3FVsEGdd3ECjAFazn5T00wP02aJxfa
+    -----END CERTIFICATE-----
+  "root2.pem": |
+    -----BEGIN CERTIFICATE-----
+    MIIDuzCCAqOgAwIBAgIDBETAMA0GCSqGSIb3DQEBBQUAMH4xCzAJBgNVBAYTAlBM
+    MSIwIAYDVQQKExlVbml6ZXRvIFRlY2hub2xvZ2llcyBTLkEuMScwJQYDVQQLEx5D
+    ZXJ0dW0gQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkxIjAgBgNVBAMTGUNlcnR1bSBU
+    cnVzdGVkIE5ldHdvcmsgQ0EwHhcNMDgxMDIyMTIwNzM3WhcNMjkxMjMxMTIwNzM3
+    WjB+MQswCQYDVQQGEwJQTDEiMCAGA1UEChMZVW5pemV0byBUZWNobm9sb2dpZXMg
+    Uy5BLjEnMCUGA1UECxMeQ2VydHVtIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MSIw
+    IAYDVQQDExlDZXJ0dW0gVHJ1c3RlZCBOZXR3b3JrIENBMIIBIjANBgkqhkiG9w0B
+    AQEFAAOCAQ8AMIIBCgKCAQEA4/t9o3K6wvDJFIf1awFO4W5AB7ptJ11/91sts1rH
+    UV+rpDKmYYe2bg+G0jACl/jXaVehGDldamR5xgFZrDwxSjh80gTSSyjoIF87B6LM
+    TXPb865Px1bVWqeWifrzq2jUI4ZZJ88JJ7ysbnKDHDBy3+Ci6dLhdHUZvSqeexVU
+    BBvXQzmtVSjF4hq79MDkrjhJM8x2hZ85RdKknvISjFH4fOQtf/WsX+sWn7Et0brM
+    kUJ3TCXJkDhv2/DM+44el1k+1WBO5gUo7Ul5E0u6SNsv+XLTOcr+H9g0cvW0QM8x
+    AcPs3hEtF10fuFDRXhmnad4HMyjKUJX5p1TLVIZQRan5SQIDAQABo0IwQDAPBgNV
+    HRMBAf8EBTADAQH/MB0GA1UdDgQWBBQIds3LB/8k9sXN7buQvOKEN0Z19zAOBgNV
+    HQ8BAf8EBAMCAQYwDQYJKoZIhvcNAQEFBQADggEBAKaorSLOAT2mo/9i0Eidi15y
+    sHhE49wcrwn9I0j6vSrEuVUEtRCjjSfeC4Jj0O7eDDd5QVsisrCaQVymcODU0HfL
+    I9MA4GxWL+FpDQ3Zqr8hgVDZBqWo/5U30Kr+4rP1mS1FhIrlQgnXdAIv94nYmem8
+    J9RHjboNRhx3zxSkHLmkMcScKHQDNP8zGSal6Q10tz6XxnboJ5ajZt3hrvJBW8qY
+    VoNzcOSGGtIxQbovvi0TWnZvTuhOgQ4/WwMioBK+ZlgRSssDxLQqKi2WF+A5VLxI
+    03YnnZotBqbJ7DnSq9ufmgsnAjUpsUCV5/nonFWIGUbWtzT1fs45mtk48VH3Tyw=
+    -----END CERTIFICATE-----
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: esign-frontend
+  labels:
+    app: esign
+    part: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: esign
+      part: frontend
+  template:
+    metadata:
+      annotations:
+         cni.projectcalico.org/ipv6pools: "[\"default-ipv6-ippool\"]"
+      labels:
+        app: esign
+        part: frontend
+    spec:
+      volumes:
+        - name: conf
+          configMap:
+            name: esign-conf
+        - name: files
+          persistentVolumeClaim:
+            claimName: esign-files
+      containers:
+        - name: frontend
+          image: as207960/as207960-esign:12
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              value: INFO
+            - name: ROCKET_PORT
+              value: "80"
+            - name: ROCKET_ADDRESS
+              value: "::"
+          envFrom:
+            - prefix: "ROCKET_"
+              secretRef:
+                name: esign-conf
+          volumeMounts:
+            - mountPath: "/as207960-esign/files"
+              name: files
+            - mountPath: "/as207960-esign/Rocket.toml"
+              name: conf
+              subPath: "Rocket.toml"
+          ports:
+            - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: esign-tasks
+  labels:
+    app: esign
+    part: tasks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: esign
+      part: tasks
+  template:
+    metadata:
+      annotations:
+         cni.projectcalico.org/ipv6pools: "[\"default-ipv6-ippool\"]"
+      labels:
+        app: esign
+        part: tasks
+    spec:
+      volumes:
+        - name: conf
+          configMap:
+            name: esign-conf
+        - name: certs
+          configMap:
+            name: esign-certs
+        - name: files
+          persistentVolumeClaim:
+            claimName: esign-files
+      containers:
+        - name: tasks
+          image: as207960/as207960-esign:12
+          imagePullPolicy: IfNotPresent
+          command: ["/as207960-esign/tasks"]
+          resources:
+            limits:
+              hsm.as207960.net/esigner: 1
+          env:
+            - name: RUST_LOG
+              value: INFO
+          envFrom:
+            - prefix: "ROCKET_"
+              secretRef:
+                name: esign-conf
+            - prefix: "ROCKET_"
+              secretRef:
+                name: esign-cert-conf
+          volumeMounts:
+            - mountPath: "/as207960-esign/files"
+              name: files
+            - mountPath: "/as207960-esign/Rocket.toml"
+              name: conf
+              subPath: "Rocket.toml"
+            - mountPath: "/certs"
+              name: certs
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: esign-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: esign
+      part: frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector: {}
+    - namespaceSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: esign-frontend
+  labels:
+    app: esign
+    part: frontend
+spec:
+  selector:
+    app: esign
+    part: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: esign
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts:
+        - esign.as207960.net
+      secretName: esign-tls
+  rules:
+  - host: esign.as207960.net
+    http: &http
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: esign-frontend
+            port:
+              number: 80

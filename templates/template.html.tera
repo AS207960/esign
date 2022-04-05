@@ -1,0 +1,126 @@
+{% extends "base" %}
+{% block title %}{{ template.name }} | Templates{% endblock %}
+{% block content %}
+<div class="container">
+<h2><a href="/template">Templates</a> > {{ template.name }}</h2>
+
+    <div class="recipients">
+        <h3>Recipients</h3>
+        {% for recipient_id in range(end=num_recipients) %}
+            <div class="recipient">
+                <label for="recipient{{ recipient_id }}">Recipient {{ recipient_id + 1}}: </label>
+                <input type="email" id="recipient{{ recipient_id }}" data-recipient="{{ recipient_id }}" required class="recipient-field form-control">
+            </div>
+        {% endfor %}
+    </div>
+
+    {% include "pdf" %}
+</div>
+{% endblock %}
+{% block scripts %}
+    <script src="/static/js/pdf.js" defer></script>
+    <script src="/static/js/signer.js" defer></script>
+    <script>
+        var pageAnnotations = {
+        {% for page, fields in own_fields %}
+            {{ page }}: [{% for field in fields %}{
+                id: "{{ field.id }}",
+                type: "{{ field.field_type }}",
+                top: {{ field.top }},
+                left: {{ field.left }},
+                width: {{ field.width }},
+                height: {{ field.height }},
+                required: {{ field.required }}
+            },{% endfor %}],
+        {% endfor %}
+        };
+        var otherPageAnnotations = [
+            {% for other in other_fields %}{
+                {% for page, fields in other %}
+                    {{ page }}: [{% for field in fields %}{
+                        top: {{ field.top }},
+                        left: {{ field.left }},
+                        width: {{ field.width }},
+                        height: {{ field.height }}
+                    },{% endfor %}],
+                {% endfor %}
+            },{% endfor %}
+        ];
+
+        var loadingModal = new bootstrap.Modal(document.getElementById("loadingModal"), {
+            backdrop: 'static',
+            keyboard: false,
+        });
+        loadingModal.show();
+
+
+        window.addEventListener("DOMContentLoaded", function () {
+            var pdfViewer = new PDFViewer("/files/{{ template.base_file }}?key={{ file_key }}", pageAnnotations, otherPageAnnotations);
+            var errorModal = new bootstrap.Modal(document.getElementById("errorModal"));
+            var errorModalMsg = document.getElementById("errorModalMsg")
+
+            pdfViewer.render().then(function () {
+                pdfViewer.mount(
+                    document.getElementById('the-pdf'),
+                    new SignerModal(document.getElementById("signatureModal"))
+                ).then(function () {
+                    loadingModal.hide();
+                }).catch(function (error) {
+                    errorModalMsg.innerText = error.message;
+                    errorModal.show();
+                    loadingModal.hide();
+                });
+            }).catch(function (error) {
+                errorModalMsg.innerText = error.message;
+                errorModal.show();
+                loadingModal.hide();
+            });
+
+            document.getElementById("submitButton").addEventListener("click", function () {
+                var csrfToken = "{{ csrf_token }}";
+                var submitData = pdfViewer.canSubmit();
+                var recipientFields = document.getElementsByClassName("recipient-field");
+
+                var recipients = [];
+                for (var recipientField of recipientFields) {
+                    if (recipientField.checkValidity()) {
+                        recipients[recipientField.dataset.recipient] = recipientField.value;
+                    } else {
+                        return;
+                    }
+                }
+
+                if (submitData) {
+                    loadingModal.show();
+
+                    fetch('/template/{{ template_id }}/create', {
+                        method: "POST",
+                        mode: "same-origin",
+                        cache: "no-cache",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            csrf_token: csrfToken,
+                            recipients: recipients,
+                            fields: submitData
+                        })
+                    }).then(function (r) {
+                        if (!r.ok) {
+                          throw new Error('Network response was not OK');
+                        }
+                        return r.json();
+                    }).then(function (d) {
+                        loadingModal.hide();
+                        window.location = `/envelope/${d.envelope_id}`;
+                    }).catch(function (error) {
+                        errorModalMsg.innerText = error.message;
+                        errorModal.show();
+                        loadingModal.hide();
+                    });
+                }
+            });
+        });
+    </script>
+{% endblock scripts %}
