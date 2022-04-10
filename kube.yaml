@@ -18,11 +18,7 @@ data:
   Rocket.toml: |
     [default]
     external_uri = "https://esign.as207960.net"
-
-    [default.smtp]
-    server = "smime-relay.as207960.ltd.uk"
-    port = 25
-    use_tls = true
+    nat64_net = "2a0d:1a40:7900:6::/80"
 ---
 kind: ConfigMap
 apiVersion: v1
@@ -159,7 +155,7 @@ spec:
             claimName: esign-files
       containers:
         - name: frontend
-          image: as207960/as207960-esign:12
+          image: as207960/as207960-esign:14
           imagePullPolicy: IfNotPresent
           env:
             - name: RUST_LOG
@@ -214,7 +210,7 @@ spec:
             claimName: esign-files
       containers:
         - name: tasks
-          image: as207960/as207960-esign:12
+          image: as207960/as207960-esign:16
           imagePullPolicy: IfNotPresent
           command: ["/as207960-esign/tasks"]
           resources:
@@ -222,7 +218,7 @@ spec:
               hsm.as207960.net/esigner: 1
           env:
             - name: RUST_LOG
-              value: INFO
+              value: DEBUG
           envFrom:
             - prefix: "ROCKET_"
               secretRef:

@@ -1,0 +1,2 @@
+[ERROR rust_analyzer::main_loop] unexpected DidChangeTextDocument: /home/q/Documents/as207960-esign/src/pdf.rs; send DidOpenTextDocument first
+[ERROR rust_analyzer::main_loop] unexpected DidChangeTextDocument: /home/q/Documents/as207960-esign/src/pdf.rs; send DidOpenTextDocument first

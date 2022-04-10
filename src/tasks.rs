@@ -29,7 +29,7 @@ pub trait EmailTransport {
 }
 
 #[rocket::async_trait]
-impl EmailTransport for lettre::transport::stub::StubTransport {
+impl EmailTransport for lettre::transport::stub::AsyncStubTransport {
     async fn send(&self, msg: lettre::Message) -> TaskResult<()> {
         match lettre::AsyncTransport::send(self,msg).await {
             Ok(()) => Ok(()),
@@ -113,6 +113,7 @@ pub async fn sign_envelope(
     fields: Vec<(models::TemplateField, String)>, client_meta: views::ClientMeta,
 ) -> TaskResult<()> {
     let conf = config();
+    let timestamp = chrono::Utc::now();
     let mut envelope = envelope;
     let base_path = std::path::Path::new(crate::FILES_DIR);
 
@@ -125,23 +126,18 @@ pub async fn sign_envelope(
         return Err(celery::error::TaskError::ExpectedError(format!("Unable to read envelope file: {}", err)));
     }
 
-    let pdf_doc_bytes = tokio::task::block_in_place(|| {
-        let mut pdf_doc = match lopdf::Document::load_mem(&base_file_bytes) {
-            Ok(d) => crate::pdf::Document::new(d),
-            Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Unable to parse envelope PDF: {}", err)))
+    let mut pdf_doc = match lopdf::Document::load_mem(&base_file_bytes) {
+        Ok(d) => crate::pdf::Document::new(d, &base_file_bytes),
+        Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Unable to parse envelope PDF: {}", err)))
+    };
+
+    for (page_num, fields) in fields.into_iter().group_by(|f| f.0.page).into_iter() {
+        let page = match pdf_doc.page(page_num as u32) {
+            Ok(p) => p,
+            Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error updating page {}: {}", page_num, err)))
         };
 
-        for (page_num, fields) in fields.into_iter().group_by(|f| f.0.page).into_iter() {
-            let mut page = match pdf_doc.page(page_num as u32) {
-                Ok(p) => p,
-                Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error updating page {}: {}", page_num, err)))
-            };
-
-            match page.setup() {
-                Ok(()) => {}
-                Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error updating page {}: {}", page_num, err)))
-            };
-
+        match page.setup(|page| {
             for (field, value) in fields {
                 match field.field_type {
                     schema::FieldType::Text | schema::FieldType::Checkbox | schema::FieldType::Date => {
@@ -156,25 +152,30 @@ pub async fn sign_envelope(
                             Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error decoding base64: {}", err)))
                         };
                         match page.add_png_img(&img_bytes, field.top_offset, field.left_offset, field.width, field.height) {
-                            Ok(()) => {}
+                            Ok(()) => {},
                             Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error adding PNG to page {}: {}", page_num, err)))
                         };
                     }
                 }
             }
+            Ok(())
+        }) {
+            Ok(r) => r,
+            Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error updating page {}: {}", page_num, err)))
+        }?;
+    }
 
-            match page.done() {
-                Ok(()) => {}
-                Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error updating page {}: {}", page_num, err)))
-            };
-        }
-
-        let mut pdf_doc = pdf_doc.finalise();
-        let mut pdf_doc_bytes = vec![];
-        pdf_doc.save_to(&mut pdf_doc_bytes).unwrap();
-
-        Ok(pdf_doc_bytes)
-    })?;
+    let pdf_doc_bytes = match pdf_doc.finalise(conf.signing_info.map(|s| crate::pdf::SigningInfo {
+        name: Some(recipient.email.clone()),
+        contact_info: Some(recipient.email.clone()),
+        date: Some(timestamp.clone()),
+        reason: None,
+        location: Some(format!("{} ({})", client_meta.ip, client_meta.user_agent)),
+        keys: s
+    })).await  {
+        Ok(b) => b,
+        Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error outputting PDF: {}", err)))
+    };
 
     let new_hash = tokio::task::block_in_place(|| {
         hash_slice(&pdf_doc_bytes)
@@ -196,7 +197,7 @@ pub async fn sign_envelope(
         let log_entry = models::EnvelopeLog {
             id: uuid::Uuid::new_v4(),
             envelope_id: envelope.id.clone(),
-            timestamp: chrono::Utc::now().naive_utc(),
+            timestamp: timestamp.naive_utc(),
             recipient_id: recipient.id.clone(),
             entry_type: schema::LogEntryType::Signed,
             ip_address: client_meta.ip.into(),

@@ -19,7 +19,8 @@ hmac = "0.11"
 sha2 = "0.9"
 chrono = "0.4"
 itertools = "0.10"
-lopdf = "0.26"
+#lopdf = "0.26"
+lopdf = { path = "../lopdf" }
 png = "0.17"
 deflate = "0.9"
 hex = "0.4"
@@ -32,14 +33,20 @@ pretty_env_logger = "0.4"
 r2d2 = "0.8"
 lazy_static = "1"
 tera = "1"
-lettre = { version = "0.10.0-rc.3", default_features = false, features = ["builder", "tokio1", "file-transport", "smtp-transport", "tokio1-native-tls"] }
+lettre = { version = "0.10.0-rc.5", default_features = false, features = ["builder", "tokio1", "file-transport", "smtp-transport", "tokio1-native-tls"] }
 serde_json = "1"
 rocket-client-addr = "0.5"
 openidconnect = "2"
 openssl = "0"
 openssl-sys = { version = "=0.9.65", features = [] }
+#openssl = { path = "../rust-openssl/openssl" }
+#openssl-sys = { path = "../rust-openssl/openssl-sys" }
 libc = "0.2"
 foreign-types-shared = "0.1"
+ipnet = { version = "2", features = ["serde"] }
+bcder = "0.6"
+cryptographic-message-syntax = "0.7"
+x509-certificate = "0.6"
 
 #[profile.release]
 #strip = true
@@ -48,4 +55,5 @@ foreign-types-shared = "0.1"
 #panic = "abort"
 
 [patch.crates-io]
+openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "0c761c8b5e2b6f18797b1cb06a6de06bf2957684" }
 openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "0c761c8b5e2b6f18797b1cb06a6de06bf2957684" }

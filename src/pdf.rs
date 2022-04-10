@@ -1,9 +1,31 @@
 use std::io::Write;
+use std::ptr::null_mut;
+use foreign_types_shared::ForeignType;
+use bcder::encode::Values;
+
+fn cvt_p<T>(r: *mut T) -> Result<*mut T, openssl::error::ErrorStack> {
+    if r.is_null() {
+        Err(openssl::error::ErrorStack::get())
+    } else {
+        Ok(r)
+    }
+}
+
+fn cvt(r: libc::c_int) -> Result<libc::c_int, openssl::error::ErrorStack> {
+    if r <= 0 {
+        Err(openssl::error::ErrorStack::get())
+    } else {
+        Ok(r)
+    }
+}
 
 pub struct Document {
     inner_doc: lopdf::Document,
     font_id: Option<lopdf::ObjectId>,
     pages: std::collections::BTreeMap<u32, lopdf::ObjectId>,
+    new_objects: std::collections::btree_map::BTreeMap::<lopdf::ObjectId, lopdf::Object>,
+    max_id: u32,
+    base_file_bytes: Vec<u8>,
 }
 
 struct BoundingBox {
@@ -20,22 +42,182 @@ struct PDFSpacePos {
 
 pub struct DocumentPage<'a> {
     page_id: lopdf::ObjectId,
+    page: lopdf::Dictionary,
     inner_content: lopdf::content::Content,
     doc: &'a mut Document,
 }
 
+pub struct InnerDocumentPage<'a: 'b, 'b> {
+    page_id: lopdf::ObjectId,
+    page: &'b mut lopdf::Dictionary,
+    inner_content: lopdf::content::Content,
+    resources_oid: Option<lopdf::ObjectId>,
+    doc: &'a mut Document,
+}
+
+pub struct SigningInfo {
+    pub name: Option<String>,
+    pub date: Option<chrono::DateTime<chrono::Utc>>,
+    pub location: Option<String>,
+    pub reason: Option<String>,
+    pub contact_info: Option<String>,
+    pub keys: crate::SigningInfo
+}
+
 impl Document {
-    pub fn new(doc: lopdf::Document) -> Self {
+    pub fn new(doc: lopdf::Document, base_file_bytes: &[u8]) -> Self {
         Self {
             pages: doc.get_pages(),
+            max_id: doc.max_id,
             inner_doc: doc,
             font_id: None,
+            new_objects: std::collections::btree_map::BTreeMap::new(),
+            base_file_bytes: base_file_bytes.to_owned(),
         }
     }
 
-    pub fn finalise(mut self) -> lopdf::Document {
-        self.inner_doc.prune_objects();
-        self.inner_doc
+    pub async fn finalise(mut self, sig_info: Option<SigningInfo>) -> Result<Vec<u8>, lopdf::Error> {
+        let dsid = if let Some(sig_info) = &sig_info {
+            Some(self.sign(sig_info)?)
+        } else {
+            None
+        };
+
+        let mut target = lopdf::writer::CountingWrite {
+            bytes_written: self.base_file_bytes.len(),
+            inner: &mut self.base_file_bytes,
+        };
+        let mut trailer = self.inner_doc.trailer.clone();
+        let is_xref_stream = trailer.get(b"Type").ok().and_then(|t| t.as_name().ok()) == Some(b"XRef");
+        let mut xref = lopdf::xref::Xref::new(self.new_objects.len() as u32);
+
+        let mut contents_map = Some(std::collections::btree_map::BTreeMap::<lopdf::ObjectId, (u32, u32)>::new());
+        for (&oid, object) in &self.new_objects {
+            if object
+                .type_name()
+                .map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name))
+                .ok()
+                != Some(true)
+            {
+                contents_map = lopdf::writer::Writer::write_indirect_object(&mut target, oid, object, &mut xref, contents_map)?;
+            }
+        }
+        let contents_map = contents_map.unwrap();
+
+        let xref_start = target.bytes_written;
+        println!("{:?} {:?}", trailer, xref);
+        if is_xref_stream {
+            self.max_id += 1;
+            let xref_id = (self.max_id, 0);
+            xref.insert(xref_id.0, lopdf::xref::XrefEntry::Normal { offset: xref_start as u32, generation: xref_id.1 });
+            let (xref_content, xref_indices) = lopdf::writer::Writer::write_xref_stream(&xref);
+            lopdf::writer::Writer::write_indirect_object(&mut target, xref_id, &lopdf::Object::Stream(lopdf::Stream {
+                dict: lopdf::dictionary! {
+                    "Type" => "XRef",
+                    "Size" => i64::from(self.max_id + 1),
+                    "Prev" => self.inner_doc.reference_table_start as i64,
+                    "W" => lopdf::Object::Array(vec![lopdf::Object::Integer(1), lopdf::Object::Integer(4), lopdf::Object::Integer(2)]),
+                    "Root" => trailer.get(b"Root")?.to_owned(),
+                    "Info" => trailer.get(b"Info")?.to_owned(),
+                    "ID" => trailer.get(b"ID")?.to_owned(),
+                    "Length" => lopdf::Object::Integer(xref_content.len() as i64),
+                    "Index" => lopdf::Object::Array(
+                        xref_indices.into_iter().map(|i| vec![lopdf::Object::Integer(i.0), lopdf::Object::Integer(i.1)])
+                        .fold(vec![], |a, b| a.into_iter().chain(b.into_iter()).collect())
+                    )
+                },
+                content: xref_content,
+                allows_compression: true,
+                start_position: Some(xref_start)
+            }), &mut xref, None)?;
+        } else {
+            lopdf::writer::Writer::write_xref(&mut target, &xref)?;
+            trailer.set(b"Size", i64::from(self.max_id + 1));
+            trailer.set(b"Prev", self.inner_doc.reference_table_start as i64);
+            trailer.remove(b"Type");
+            target.write_all(b"trailer\n").unwrap();
+            lopdf::writer::Writer::write_dictionary(&mut target, &trailer, None, None)?;
+        }
+
+        write!(target, "\nstartxref\n{}\n%%EOF", xref_start).unwrap();
+
+        if let (Some(dsid), Some(sig_info)) = (dsid, sig_info) {
+            let contents_range = *contents_map.get(&dsid).unwrap();
+            self.base_file_bytes[contents_range.1 as usize + 10] = b'[';
+            self.base_file_bytes.splice(
+                contents_range.1 as usize + 12..contents_range.1 as usize + 45,
+                format!(" {:010} {:010} {:010}", contents_range.0, contents_range.1, self.base_file_bytes.len() - contents_range.1 as usize).bytes()
+            );
+            self.base_file_bytes[contents_range.1 as usize + 45] = b']';
+
+            let signed_bytes = self.base_file_bytes[..contents_range.0 as usize].iter().cloned().chain(
+                self.base_file_bytes[contents_range.1 as usize..].iter().cloned()
+            ).collect::<Vec<_>>();
+
+             let signature_bytes = match match tokio::task::spawn_blocking(
+                move || -> Result<Vec<u8>, String> {
+                    let signed_bytes_bio = openssl::bio::MemBioSlice::new(&signed_bytes).map_err(|e| e.to_string())?;
+                    let flags = openssl::cms::CMSOptions::DETACHED | openssl::cms::CMSOptions::BINARY |
+                        openssl::cms::CMSOptions::NOSMIMECAP | openssl::cms::CMSOptions::CADES |
+                        openssl::cms::CMSOptions::PARTIAL;
+                    Ok(unsafe {
+                        let cms = cvt_p(openssl_sys::CMS_sign(
+                            null_mut(), null_mut(), null_mut(),
+                            signed_bytes_bio.as_ptr(), flags.bits()
+                        )).map_err(|e| e.to_string())?;
+                        let si = cvt_p(openssl_sys::CMS_add1_signer(
+                            cms, sig_info.keys.signing_cert.as_ptr(), sig_info.keys.signing_pkey.as_ptr(),
+                            openssl_sys::EVP_sha256(), flags.bits()
+                        )).map_err(|e| e.to_string())?;
+                        cvt(openssl_sys::CMS_final(
+                            cms, signed_bytes_bio.as_ptr(), null_mut(), flags.bits()
+                        )).map_err(|e| e.to_string())?;
+                        let sig: &[u8] = std::slice::from_raw_parts(
+                            openssl_sys::ASN1_STRING_get0_data((*si).signature as *const openssl_sys::ASN1_STRING),
+                            openssl_sys::ASN1_STRING_length((*si).signature as *const openssl_sys::ASN1_STRING) as usize
+                        );
+                        let r = cryptographic_message_syntax::time_stamp_message_http(
+                            "http://dd-at.ria.ee/tsa", &sig,
+                            x509_certificate::DigestAlgorithm::Sha256
+                        ).map_err(|e| format!("Unable to get timestamp: {}", e))?;
+                        if !r.is_success() {
+                            return Err("Unable to get timestamp, unknown error".to_string());
+                        }
+                        let rs = r.signed_data().map_err(|e| e.to_string())?.ok_or("Signed timestamp not available")?;
+                        let rsd = rs.encode_ref().to_captured(bcder::Mode::Der);
+                        let rsds = rsd.as_slice();
+                        cvt(openssl_sys::CMS_unsigned_add1_attr_by_NID(
+                            si, openssl::nid::Nid::ID_SMIME_AA_TIMESTAMPTOKEN.as_raw(),
+                            16, rsds.as_ptr() as *const u8, rsds.len() as i32
+                        )).map_err(|e| e.to_string())?;
+                        let l = cvt(openssl_sys::i2d_CMS_ContentInfo(cms, null_mut())).map_err(|e| e.to_string())?;
+                        let mut buf = vec![0; l as usize];
+                        cvt(openssl_sys::i2d_CMS_ContentInfo(cms, &mut buf.as_mut_ptr())).map_err(|e| e.to_string())?;
+                        buf
+                    })
+                }
+            ).await {
+                 Ok(s) => s,
+                 Err(err) => {
+                     return Err(lopdf::Error::IO(err.into()));
+                 }
+             } {
+                 Ok(s) => s,
+                 Err(err) => {
+                     return Err(lopdf::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, err)));
+                 }
+             };
+
+            for i in 0..signature_bytes.len() {
+                let b_str = format!("{:02x}", signature_bytes[i]);
+                let b = b_str.as_bytes();
+                self.base_file_bytes[contents_range.0 as usize + 1 + (2*i)] = b[0];
+                self.base_file_bytes[contents_range.0 as usize + 2 + (2*i)] = b[1];
+            }
+
+        }
+
+        Ok(self.base_file_bytes)
     }
 
     pub fn page(&mut self, page: u32) -> Result<DocumentPage, lopdf::Error> {
@@ -46,24 +228,155 @@ impl Document {
 
         Ok(DocumentPage {
             inner_content: self.inner_doc.get_and_decode_page_content(page_id)?,
+            page: self.inner_doc.get_object(page_id).and_then(lopdf::Object::as_dict).unwrap().clone(),
             doc: self,
             page_id,
         })
+    }
+
+    fn page_dict(&mut self, page: u32) -> Result<&mut lopdf::Dictionary, lopdf::Error> {
+        let page_id = match self.pages.get(&page).map(|o| *o) {
+            Some(i) => i,
+            None => return Err(lopdf::Error::PageNumberNotFound(page))
+        };
+
+        if !self.new_objects.contains_key(&page_id) {
+            let page = self.inner_doc.get_object(page_id).and_then(lopdf::Object::as_dict).unwrap().clone();
+            self.new_objects.insert(page_id, page.into());
+        }
+
+        Ok(self.new_objects.get_mut(&page_id).unwrap().as_dict_mut().unwrap())
+    }
+
+    fn sign(&mut self, sig_info: &SigningInfo) -> Result<lopdf::ObjectId, lopdf::Error> {
+        self.max_id += 1;
+        let sid = (self.max_id, 0);
+        self.max_id += 1;
+        let slid = (self.max_id, 0);
+        self.max_id += 1;
+        let dsid = (self.max_id, 0);
+
+        let acro_form = self.acro_form()?;
+
+        acro_form.set("SigFlags", lopdf::Object::Integer(3));
+
+        let acro_fields = if acro_form.has(b"Fields") {
+            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        } else {
+            acro_form.set("Fields", lopdf::Object::Array(vec![]));
+            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        };
+
+        acro_fields.push(lopdf::Object::Reference(sid));
+
+        self.new_objects.insert(sid, dictionary! {
+            "FT" => "Sig",
+            "Subtype" => "Widget",
+            "Rect" => lopdf::Object::Array(vec![0.0f64.into(), 0.0f64.into(), 0.0f64.into(), 0.0f64.into()]),
+            "F" => 132u32,
+            "Lock" => lopdf::Object::Reference(slid),
+            "V" => lopdf::Object::Reference(dsid),
+            "DR" => dictionary!(),
+            "MK" => dictionary!(),
+            "T" => format!("Signature{}", uuid::Uuid::new_v4()),
+            "DA" => "/Helv 10 Tf"
+        }.into());
+        self.new_objects.insert(slid, dictionary! {
+            "Type" => "SigFieldLock",
+            "Action" => "All"
+        }.into());
+
+        let mut sig_dict = dictionary! {
+            "Type" => "Sig",
+            "Filter" => "Adobe.PPKLite",
+            "SubFilter" => "ETSI.CAdES.detached",
+            "Contents" => lopdf::Object::String(vec![0; 8192], lopdf::StringFormat::Hexadecimal),
+            "ByteRange" => lopdf::Object::String(vec![0; 17], lopdf::StringFormat::Hexadecimal),
+            "M" => sig_info.date.unwrap_or_else(|| chrono::Utc::now()).naive_utc().format("D:%Y%m%d%H%M%SZ").to_string(),
+            "Reason" => sig_info.reason.as_deref().unwrap_or("Signed with AS207960 eSign").to_string(),
+            "Prop_build" => dictionary! {
+                "App" => dictionary! {
+                    "Name" => "AS207960 eSign",
+                    "REx" => env!("CARGO_PKG_VERSION")
+                }
+            }
+        };
+        if let Some(name) = &sig_info.name {
+            sig_dict.set("Name", name.to_string());
+        }
+        if let Some(loc) = &sig_info.location {
+            sig_dict.set("Location", loc.to_string());
+        }
+        if let Some(contact_info) = &sig_info.contact_info {
+            sig_dict.set("ContactInfo", contact_info.to_string());
+        }
+        self.new_objects.insert(dsid, sig_dict.into());
+
+        let page_1 = self.page_dict(0)?;
+        let page_1_annotations = if page_1.has(b"Annots") {
+            let r = page_1.get_mut(b"Annots").unwrap();
+            if let Ok(r) = r.as_reference() {
+                let o = self.inner_doc.get_object(r).unwrap().clone();
+                self.new_objects.insert(r, o);
+                self.new_objects.get_mut(&r).unwrap()
+            } else {
+                r
+            }
+        } else {
+            page_1.set("Annots", lopdf::Object::Array(vec![]));
+            page_1.get_mut(b"Annots").unwrap()
+        }.as_array_mut().unwrap();
+
+        page_1_annotations.push(lopdf::Object::Reference(sid));
+
+        Ok(dsid)
     }
 
     fn create_or_get_font_id(&mut self) -> lopdf::ObjectId {
         match self.font_id {
             Some(f) => f,
             None => {
-                let font_id = self.inner_doc.add_object(dictionary! {
+                self.max_id += 1;
+                let font_id = (self.max_id, 0);
+                self.new_objects.insert(font_id, dictionary! {
                     "Type" => "Font",
                     "Subtype" => "Type1",
                     "BaseFont" => "Helvetica",
-                });
+                }.into());
                 self.font_id = Some(font_id);
                 font_id
             }
         }
+    }
+
+    fn acro_form(&mut self) -> Result<&mut lopdf::Dictionary, lopdf::Error> {
+        let catalog = self.inner_doc.catalog()?;
+
+        let acro_form = if catalog.has(b"AcroForm") {
+            let r = catalog.get(b"AcroForm").unwrap();
+            if let Ok(r) = r.as_reference() {
+                let o = self.inner_doc.get_object(r).unwrap().clone();
+                self.new_objects.insert(r, o);
+                self.new_objects.get_mut(&r).unwrap()
+            } else {
+                let c = catalog.clone();
+                let root = self.inner_doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+                self.new_objects.insert(root, c.into());
+                self.new_objects.get_mut(&root).unwrap().as_dict_mut().unwrap().get_mut(b"AcroForm").unwrap()
+            }
+        } else {
+            self.max_id += 1;
+            let afid = (self.max_id, 0);
+            self.new_objects.insert(afid, dictionary!().into());
+
+            let mut c = catalog.clone();
+            c.set("AcroForm", lopdf::Object::Reference(afid));
+            let root = self.inner_doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+            self.new_objects.insert(root, c.into());
+            self.new_objects.get_mut(&afid).unwrap()
+        }.as_dict_mut().unwrap();
+
+        Ok(acro_form)
     }
 
     fn get_inherited_attr(&self, key: &[u8], page_id: lopdf::ObjectId) -> Result<&lopdf::Object, lopdf::Error> {
@@ -88,6 +401,85 @@ impl Document {
 }
 
 impl DocumentPage<'_> {
+    pub fn resources(&mut self, resources_oid: Option<lopdf::ObjectId>) -> &mut lopdf::Dictionary {
+        match resources_oid {
+            Some(oid) => self.doc.new_objects.get_mut(&oid).unwrap(),
+            None => self.page.get_mut(b"Resources").unwrap()
+        }.as_dict_mut().unwrap()
+    }
+
+    pub fn setup<R, F: FnOnce(&mut InnerDocumentPage) -> R>(mut self, f: F) -> Result<R, lopdf::Error> {
+        let font_id = self.doc.create_or_get_font_id();
+        let mut resources_oid = None;
+
+        if self.page.has(b"Resources") {
+            let r = self.page.get_mut(b"Resources").unwrap();
+            if let Ok(r) = r.as_reference() {
+                let o = self.doc.inner_doc.get_object(r)?.clone();
+                self.doc.new_objects.insert(r, o);
+                resources_oid = Some(r);
+            }
+        } else {
+            self.page.set("Resources", dictionary!());
+        }
+
+        self.doc.max_id += 1;
+        let oid = (self.doc.max_id, 0);
+        let page_fonts = match self.resources(resources_oid).get_mut(b"Font") {
+            Err(_) => {
+                self.resources(resources_oid).set("Font", lopdf::Object::Reference(oid));
+                self.doc.new_objects.insert(oid, dictionary!().into());
+                self.doc.new_objects.get_mut(&oid).unwrap().as_dict_mut().unwrap()
+            }
+            Ok(lopdf::Object::Reference(oid)) => {
+                let oid = *oid;
+                let o = self.doc.inner_doc.get_object(oid).unwrap().clone();
+                self.doc.new_objects.insert(oid, o);
+                self.doc.new_objects.get_mut(&oid).unwrap().as_dict_mut().unwrap()
+            }
+            Ok(lopdf::Object::Dictionary(d)) => d,
+            _ => unimplemented!()
+        };
+
+        if !page_fonts.has(b"F_as207690_esign_Helvetica") {
+            page_fonts.set("F_as207690_esign_Helvetica", font_id);
+        }
+
+        let mut inner = InnerDocumentPage {
+            resources_oid,
+            inner_content: self.inner_content,
+            page: &mut self.page,
+            page_id: self.page_id,
+            doc: self.doc,
+        };
+        let res = f(&mut inner);
+
+        inner.doc.max_id += 1;
+        let pcid = (inner.doc.max_id, 0);
+        inner.doc.new_objects.insert(
+            pcid,
+            lopdf::Object::Stream(
+                lopdf::Stream::new(
+                    lopdf::dictionary!(),
+                    inner.inner_content.encode()?
+                )
+            ),
+        );
+        inner.page.set("Contents", lopdf::Object::Reference(pcid));
+        inner.doc.new_objects.insert(inner.page_id, self.page.into());
+
+        Ok(res)
+    }
+}
+
+impl InnerDocumentPage<'_, '_> {
+    pub fn resources(&mut self) -> &mut lopdf::Dictionary {
+        match self.resources_oid {
+            Some(oid) => self.doc.new_objects.get_mut(&oid).unwrap(),
+            None => self.page.get_mut(b"Resources").unwrap()
+        }.as_dict_mut().unwrap()
+    }
+
     fn get_media_box(&self) -> Result<BoundingBox, lopdf::Error> {
         let media_box = self.doc.get_inherited_attr(b"MediaBox", self.page_id)?.as_array()?;
         if media_box.len() != 4 {
@@ -129,30 +521,24 @@ impl DocumentPage<'_> {
         })
     }
 
-    fn resources(&mut self) -> Result<&mut lopdf::Dictionary, lopdf::Error> {
-        self.doc.inner_doc.get_or_create_resources(self.page_id).and_then(lopdf::Object::as_dict_mut)
+    fn png_error_to_lopdf(err: png::DecodingError) -> lopdf::Error {
+        match err {
+            png::DecodingError::IoError(io) => lopdf::Error::IO(io),
+            png::DecodingError::Format(f) => lopdf::Error::Syntax(f.to_string()),
+            png::DecodingError::Parameter(f) => lopdf::Error::Syntax(f.to_string()),
+            png::DecodingError::LimitsExceeded => lopdf::Error::IO(std::io::ErrorKind::OutOfMemory.into())
+        }
     }
 
-    pub fn setup(&mut self) -> Result<(), lopdf::Error> {
-        let font_id = self.doc.create_or_get_font_id();
-        let page_fonts = match self.resources()?.get_mut(b"Font") {
-            Err(_) => {
-                let oid = self.doc.inner_doc.add_object(dictionary!());
-                self.resources()?.set("Font", lopdf::Object::Reference(oid));
-                self.doc.inner_doc.get_object_mut(oid).and_then(lopdf::Object::as_dict_mut)?
-            }
-            Ok(lopdf::Object::Reference(oid)) => {
-                let oid = *oid;
-                self.doc.inner_doc.get_object_mut(oid).and_then(lopdf::Object::as_dict_mut)?
-            }
-            Ok(lopdf::Object::Dictionary(d)) => d,
-            _ => unimplemented!()
-        };
-
-        if !page_fonts.has(b"F_as207690_esign_Helvetica") {
-            page_fonts.set("F_as207690_esign_Helvetica", font_id);
+    fn add_xobject<N: Into<Vec<u8>>>(&mut self, xobject_name: N, xobject_id: lopdf::ObjectId) -> Result<(), lopdf::Error> {
+        let resources = self.resources();
+        if !resources.has(b"XObject") {
+            resources.set("XObject", lopdf::Dictionary::new());
         }
-
+        let xobjects = resources
+            .get_mut(b"XObject")
+            .and_then(lopdf::Object::as_dict_mut)?;
+        xobjects.set(xobject_name, lopdf::Object::Reference(xobject_id));
         Ok(())
     }
 
@@ -168,15 +554,6 @@ impl DocumentPage<'_> {
         ]);
 
         Ok(())
-    }
-
-    fn png_error_to_lopdf(err: png::DecodingError) -> lopdf::Error {
-        match err {
-            png::DecodingError::IoError(io) => lopdf::Error::IO(io),
-            png::DecodingError::Format(f) => lopdf::Error::Syntax(f.to_string()),
-            png::DecodingError::Parameter(f) => lopdf::Error::Syntax(f.to_string()),
-            png::DecodingError::LimitsExceeded => lopdf::Error::IO(std::io::ErrorKind::OutOfMemory.into())
-        }
     }
 
     pub fn add_png_img(&mut self, data: &[u8], top: f64, left: f64, width: f64, height: f64) -> Result<(), lopdf::Error> {
@@ -291,7 +668,10 @@ impl DocumentPage<'_> {
             mask_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
             let mask_obj = lopdf::Stream::new(mask_dict, mask_hex_data.into())
                 .with_compression(false);
-            self.doc.inner_doc.add_object(mask_obj)
+            self.doc.max_id += 1;
+            let oid = (self.doc.max_id, 0);
+            self.doc.new_objects.insert(oid, mask_obj.into());
+            oid
         });
 
         let mut img_dict = lopdf::Dictionary::new();
@@ -307,12 +687,15 @@ impl DocumentPage<'_> {
         }
         let img_obj = lopdf::Stream::new(img_dict, img_hex_data.into())
             .with_compression(false);
-        let img_obj_id = self.doc.inner_doc.add_object(img_obj);
+
+        self.doc.max_id += 1;
+        let img_obj_id = (self.doc.max_id, 0);
+        self.doc.new_objects.insert(img_obj_id, img_obj.into());
 
         let pos = self.convert_to_pdf_space(top, left, width, height)?;
 
         let img_name = format!("X{}", uuid::Uuid::new_v4());
-        self.doc.inner_doc.add_xobject(self.page_id, img_name.clone(), img_obj_id)?;
+        self.add_xobject(img_name.clone(), img_obj_id)?;
 
         self.inner_content.operations.extend(vec![
             lopdf::content::Operation::new("q", vec![]),
@@ -324,11 +707,6 @@ impl DocumentPage<'_> {
             lopdf::content::Operation::new("Q", vec![]),
         ]);
 
-        Ok(())
-    }
-
-    pub fn done(self) -> Result<(), lopdf::Error> {
-        self.doc.inner_doc.change_page_content(self.page_id, self.inner_content.encode()?)?;
         Ok(())
     }
 }

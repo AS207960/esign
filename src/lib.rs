@@ -1,3 +1,4 @@
+#![allow(incomplete_features)]
 #![feature(adt_const_params)]
 #![crate_type = "rlib"]
 
@@ -121,7 +122,8 @@ pub struct Config {
     smtp: SMTPConfig,
     external_uri: rocket::http::uri::Reference<'static>,
     #[serde(default)]
-    signing: Option<SigningConfig>
+    signing: Option<SigningConfig>,
+    nat64_net: Option<ipnet::Ipv6Net>
 }
 
 #[derive(Deserialize)]
@@ -315,9 +317,12 @@ pub async fn setup_pkcs11_engine(pin: &str, provider: Option<&str>) -> P11Engine
             unsafe {
                 // Something here seems to be blocking, even though we shouldn't be talking to the HSM yet.
                 openssl_sys::ENGINE_load_builtin_engines();
+                trace!("Getting OpenSSL PKCS#11 engine");
                 let engine =
                     P11Engine::new(cvt_p(openssl_sys::ENGINE_by_id(engine_id.as_ptr()))?);
+                trace!("Initialising PKCS#11 engine");
                 cvt(openssl_sys::ENGINE_init(**engine.claim()))?;
+                trace!("Setting engine PIN");
                 cvt(openssl_sys::ENGINE_ctrl_cmd_string(
                     **engine.claim(),
                     engine_pin_ctrl.as_ptr(),
@@ -325,6 +330,7 @@ pub async fn setup_pkcs11_engine(pin: &str, provider: Option<&str>) -> P11Engine
                     1,
                 ))?;
                 if let Some(module) = engine_module_path {
+                    trace!("Setting engine provider");
                     cvt(openssl_sys::ENGINE_ctrl_cmd_string(
                         **engine.claim(),
                         engine_module_path_ctrl.as_ptr(),

@@ -13,6 +13,10 @@ client_id = "esign"
 client_secret = "558ef97e-361a-42d7-8ddb-5881eff610df"
 
 [debug.smtp]
-server = "smime-relay.as207960.ltd.uk"
+server = "mx.postal.as207960.net"
 port = 25
 use_tls = true
+
+[debug.smtp.auth]
+username = "as207960/main"
+password = "K47LyJQ8QYWPlPnwighr5F65"

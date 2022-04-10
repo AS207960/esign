@@ -17,11 +17,31 @@ impl<'r> rocket::request::FromRequest<'r> for ClientMeta {
     type Error = &'static str;
 
     async fn from_request(request: &'r rocket::Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
-        let ip = match rocket_client_addr::ClientRealAddr::from_request(request).await {
+        let config = match request.guard::<&rocket::State<crate::Config>>().await {
+            rocket::request::Outcome::Success(c) => c,
+            rocket::request::Outcome::Forward(f) => return rocket::request::Outcome::Forward(f),
+            rocket::request::Outcome::Failure(_) => return rocket::request::Outcome::Failure((rocket::http::Status::InternalServerError, "Unable to get config")),
+        };
+
+
+        let mut ip = match rocket_client_addr::ClientRealAddr::from_request(request).await {
             rocket::request::Outcome::Success(ip) => ip.ip,
             rocket::request::Outcome::Forward(f) => return rocket::request::Outcome::Forward(f),
             rocket::request::Outcome::Failure(_) => return rocket::request::Outcome::Failure((rocket::http::Status::BadRequest, "Unable to ascertain client IP")),
         };
+
+        if let std::net::IpAddr::V6(v6_ip) = ip {
+            if let Some(v4_ip) = v6_ip.to_ipv4() {
+                ip = std::net::IpAddr::V4(v4_ip);
+            } else if let Some(nat64_net) = config.nat64_net {
+                if nat64_net.contains(&v6_ip) {
+                    let [_, _, _, _, _, _, ab, cd] = v6_ip.segments();
+                    let [a, b] = ab.to_be_bytes();
+                    let [c, d] = cd.to_be_bytes();
+                    ip = std::net::IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d));
+                }
+            }
+        }
 
         let user_agent = match request.headers().get_one("User-Agent") {
             Some(v) => v.to_string(),
