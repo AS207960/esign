@@ -20,7 +20,7 @@ sha2 = "0.9"
 chrono = "0.4"
 itertools = "0.10"
 #lopdf = "0.26"
-lopdf = { path = "../lopdf" }
+lopdf = { git = "https://github.com/AS207960/lopdf", rev = "a736a374751b75a9688f2eeaafd61b9bf0cb2cc4" }
 png = "0.17"
 deflate = "0.9"
 hex = "0.4"
@@ -48,11 +48,11 @@ bcder = "0.6"
 cryptographic-message-syntax = "0.7"
 x509-certificate = "0.6"
 
-#[profile.release]
-#strip = true
-#opt-level = "z"
-#lto = true
-#panic = "abort"
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+panic = "abort"
 
 [patch.crates-io]
 openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "0c761c8b5e2b6f18797b1cb06a6de06bf2957684" }

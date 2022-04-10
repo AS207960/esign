@@ -1588,6 +1588,7 @@ dependencies = [
 [[package]]
 name = "lopdf"
 version = "0.27.0"
+source = "git+https://github.com/AS207960/lopdf?rev=a736a374751b75a9688f2eeaafd61b9bf0cb2cc4#a736a374751b75a9688f2eeaafd61b9bf0cb2cc4"
 dependencies = [
  "byteorder",
  "chrono",

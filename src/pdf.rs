@@ -312,7 +312,7 @@ impl Document {
         }
         self.new_objects.insert(dsid, sig_dict.into());
 
-        let page_1 = self.page_dict(0)?;
+        let page_1 = self.page_dict(1)?;
         let page_1_annotations = if page_1.has(b"Annots") {
             let r = page_1.get_mut(b"Annots").unwrap();
             if let Ok(r) = r.as_reference() {
