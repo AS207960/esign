@@ -115,6 +115,7 @@ pub async fn sign_envelope(
     let conf = config();
     let timestamp = chrono::Utc::now();
     let mut envelope = envelope;
+    let mut fields = fields;
     let base_path = std::path::Path::new(crate::FILES_DIR);
 
     let mut base_file = match tokio::fs::File::open(base_path.join(envelope.current_file)).await {
@@ -130,6 +131,8 @@ pub async fn sign_envelope(
         Ok(d) => crate::pdf::Document::new(d, &base_file_bytes),
         Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Unable to parse envelope PDF: {}", err)))
     };
+
+    fields.sort_by_key(|f| f.0.page);
 
     for (page_num, fields) in fields.into_iter().group_by(|f| f.0.page).into_iter() {
         let page = match pdf_doc.page(page_num as u32) {

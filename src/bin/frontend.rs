@@ -9,7 +9,7 @@ async fn main() -> Result<(), rocket::Error> {
 
     info!("AS207960 eSign frontend starting...");
 
-    app.rocket
+    let _ = app.rocket
         .attach(as207960_esign::DbConn::fairing())
         .attach(as207960_esign::csrf::CSRFFairing)
         .attach(rocket_dyn_templates::Template::fairing())
@@ -32,5 +32,6 @@ async fn main() -> Result<(), rocket::Error> {
             as207960_esign::views::authenticated_files
         ])
         .launch()
-        .await
+        .await?;
+    Ok(())
 }

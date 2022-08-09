@@ -132,8 +132,8 @@ impl Document {
             }), &mut xref, None)?;
         } else {
             lopdf::writer::Writer::write_xref(&mut target, &xref)?;
-            trailer.set(b"Size", i64::from(self.max_id + 1));
-            trailer.set(b"Prev", self.inner_doc.reference_table_start as i64);
+            trailer.set(*b"Size", i64::from(self.max_id + 1));
+            trailer.set(*b"Prev", self.inner_doc.reference_table_start as i64);
             trailer.remove(b"Type");
             target.write_all(b"trailer\n").unwrap();
             lopdf::writer::Writer::write_dictionary(&mut target, &trailer, None, None)?;

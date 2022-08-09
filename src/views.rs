@@ -113,8 +113,8 @@ struct TemplateContext {
     template_id: String,
     template: models::Template,
     file_key: String,
-    own_fields: std::collections::HashMap<i64, Vec<FieldContext>>,
-    other_fields: Vec<std::collections::HashMap<i64, Vec<FieldContext>>>,
+    own_fields: std::collections::HashMap<String, Vec<FieldContext>>,
+    other_fields: Vec<std::collections::HashMap<String, Vec<FieldContext>>>,
     num_recipients: usize,
     csrf_token: String,
     user_authenticated: bool,
@@ -192,30 +192,30 @@ pub async fn template(
     let (template, fields) = load_template(tid.uuid, &db).await?;
     debug!("Loaded template and fields: {:#?}, {:#?}", template, fields);
 
-    let mut own_fields = std::collections::HashMap::<i64, Vec<FieldContext>>::new();
+    let mut own_fields = std::collections::HashMap::<String, Vec<FieldContext>>::new();
     for field in fields.iter().filter(|f| f.signing_order == 0) {
         let field_context: FieldContext = field.into();
-        match own_fields.get_mut(&field.page) {
+        match own_fields.get_mut(&field.page.to_string()) {
             Some(v) => {
                 v.push(field_context);
             }
             None => {
-                own_fields.insert(field.page, vec![field_context]);
+                own_fields.insert(field.page.to_string(), vec![field_context]);
             }
         }
     }
     let mut other_fields_db = fields.iter().filter(|f| f.signing_order != 0).collect::<Vec<_>>();
     other_fields_db.sort_by(|f1, f2| f1.signing_order.cmp(&f2.signing_order));
     let other_fields = other_fields_db.into_iter().group_by(|f| f.signing_order).into_iter().map(|(_, f)| {
-        let mut fields = std::collections::HashMap::<i64, Vec<FieldContext>>::new();
+        let mut fields = std::collections::HashMap::<String, Vec<FieldContext>>::new();
         for field in f {
             let field_context: FieldContext = field.into();
-            match fields.get_mut(&field.page) {
+            match fields.get_mut(&field.page.to_string()) {
                 Some(v) => {
                     v.push(field_context);
                 }
                 None => {
-                    fields.insert(field.page, vec![field_context]);
+                    fields.insert(field.page.to_string(), vec![field_context]);
                 }
             }
         }
@@ -515,7 +515,7 @@ struct EnvelopeSignContext {
     envelope: models::Envelope,
     envelope_recipient: models::EnvelopeRecipient,
     file_key: String,
-    own_fields: std::collections::HashMap<i64, Vec<FieldContext>>,
+    own_fields: std::collections::HashMap<String, Vec<FieldContext>>,
     csrf_token: String,
     user_authenticated: bool,
 }
@@ -556,15 +556,15 @@ pub async fn envelope_sign(
         }));
     }
 
-    let mut own_fields = std::collections::HashMap::<i64, Vec<FieldContext>>::new();
+    let mut own_fields = std::collections::HashMap::<String, Vec<FieldContext>>::new();
     for field in fields.iter().filter(|f| f.signing_order == envelope_recipient.recipient_order) {
         let field_context: FieldContext = field.into();
-        match own_fields.get_mut(&field.page) {
+        match own_fields.get_mut(&field.page.to_string()) {
             Some(v) => {
                 v.push(field_context);
             }
             None => {
-                own_fields.insert(field.page, vec![field_context]);
+                own_fields.insert(field.page.to_string(), vec![field_context]);
             }
         }
     }

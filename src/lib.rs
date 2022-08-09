@@ -244,6 +244,9 @@ pub async fn setup() -> App {
         prefetch_count = 2,
         acks_late = true,
         task_retry_for_unexpected = true,
+        broker_connection_retry = true,
+        broker_connection_timeout = 10,
+        heartbeat = Some(10),
     ).await.expect("Unable to setup Celery app");
 
     let db_pool = diesel::PgConnection::pool("db", &rocket).unwrap();
