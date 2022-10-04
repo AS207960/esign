@@ -15,10 +15,10 @@ pub struct Template {
 pub struct TemplateField {
     pub id: uuid::Uuid,
     pub template_id: uuid::Uuid,
-    pub signing_order: i64,
+    pub signing_order: i32,
     pub field_type: super::schema::FieldType,
     pub required: bool,
-    pub page: i64,
+    pub page: i32,
     pub top_offset: f64,
     pub left_offset: f64,
     pub width: f64,
@@ -40,7 +40,7 @@ pub struct EnvelopeRecipient {
     pub id: uuid::Uuid,
     pub envelope_id: uuid::Uuid,
     pub email: String,
-    pub recipient_order: i64,
+    pub recipient_order: i32,
     pub key: String,
     pub completed: bool,
 }

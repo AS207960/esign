@@ -52,7 +52,7 @@ pub struct InnerDocumentPage<'a: 'b, 'b> {
     page: &'b mut lopdf::Dictionary,
     inner_content: lopdf::content::Content,
     resources_oid: Option<lopdf::ObjectId>,
-    doc: &'a mut Document,
+    pub doc: &'a mut Document,
 }
 
 pub struct SigningInfo {
@@ -61,7 +61,16 @@ pub struct SigningInfo {
     pub location: Option<String>,
     pub reason: Option<String>,
     pub contact_info: Option<String>,
-    pub keys: crate::SigningInfo
+    pub top: f64,
+    pub left: f64,
+    pub width: f64,
+    pub height: f64,
+    pub img_obj_id: lopdf::ObjectId
+}
+
+pub struct SigningFinalisationInfo {
+    pub oid: lopdf::ObjectId,
+    pub keys: crate::SigningInfo,
 }
 
 impl Document {
@@ -76,13 +85,7 @@ impl Document {
         }
     }
 
-    pub async fn finalise(mut self, sig_info: Option<SigningInfo>) -> Result<Vec<u8>, lopdf::Error> {
-        let dsid = if let Some(sig_info) = &sig_info {
-            Some(self.sign(sig_info)?)
-        } else {
-            None
-        };
-
+    pub async fn finalise(mut self, sig_info: Option<SigningFinalisationInfo>) -> Result<Vec<u8>, lopdf::Error> {
         let mut target = lopdf::writer::CountingWrite {
             bytes_written: self.base_file_bytes.len(),
             inner: &mut self.base_file_bytes,
@@ -141,8 +144,8 @@ impl Document {
 
         write!(target, "\nstartxref\n{}\n%%EOF", xref_start).unwrap();
 
-        if let (Some(dsid), Some(sig_info)) = (dsid, sig_info) {
-            let contents_range = *contents_map.get(&dsid).unwrap();
+        if let Some(sig_info) = sig_info {
+            let contents_range = *contents_map.get(&sig_info.oid).unwrap();
             self.base_file_bytes[contents_range.1 as usize + 10] = b'[';
             self.base_file_bytes.splice(
                 contents_range.1 as usize + 12..contents_range.1 as usize + 45,
@@ -234,102 +237,166 @@ impl Document {
         })
     }
 
-    fn page_dict(&mut self, page: u32) -> Result<&mut lopdf::Dictionary, lopdf::Error> {
-        let page_id = match self.pages.get(&page).map(|o| *o) {
-            Some(i) => i,
-            None => return Err(lopdf::Error::PageNumberNotFound(page))
+    pub fn png_to_xobj(&mut self, data: &[u8]) -> Result<lopdf::ObjectId, lopdf::Error> {
+        let img = png::Decoder::new(data);
+        let mut img_reader = match img.read_info() {
+            Ok(i) => i,
+            Err(e) => return Err(Self::png_error_to_lopdf(e))
         };
-
-        if !self.new_objects.contains_key(&page_id) {
-            let page = self.inner_doc.get_object(page_id).and_then(lopdf::Object::as_dict).unwrap().clone();
-            self.new_objects.insert(page_id, page.into());
-        }
-
-        Ok(self.new_objects.get_mut(&page_id).unwrap().as_dict_mut().unwrap())
-    }
-
-    fn sign(&mut self, sig_info: &SigningInfo) -> Result<lopdf::ObjectId, lopdf::Error> {
-        self.max_id += 1;
-        let sid = (self.max_id, 0);
-        self.max_id += 1;
-        let slid = (self.max_id, 0);
-        self.max_id += 1;
-        let dsid = (self.max_id, 0);
-
-        let acro_form = self.acro_form()?;
-
-        acro_form.set("SigFlags", lopdf::Object::Integer(3));
-
-        let acro_fields = if acro_form.has(b"Fields") {
-            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
-        } else {
-            acro_form.set("Fields", lopdf::Object::Array(vec![]));
-            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        let mut img_buf = vec![0; img_reader.output_buffer_size()];
+        let img_data = match img_reader.next_frame(&mut img_buf) {
+            Ok(i) => i,
+            Err(e) => return Err(Self::png_error_to_lopdf(e))
         };
+        let img_bytes = &img_buf[..img_data.buffer_size()];
 
-        acro_fields.push(lopdf::Object::Reference(sid));
-
-        self.new_objects.insert(sid, dictionary! {
-            "FT" => "Sig",
-            "Subtype" => "Widget",
-            "Rect" => lopdf::Object::Array(vec![0.0f64.into(), 0.0f64.into(), 0.0f64.into(), 0.0f64.into()]),
-            "F" => 132u32,
-            "Lock" => lopdf::Object::Reference(slid),
-            "V" => lopdf::Object::Reference(dsid),
-            "DR" => dictionary!(),
-            "MK" => dictionary!(),
-            "T" => format!("Signature{}", uuid::Uuid::new_v4()),
-            "DA" => "/Helv 10 Tf"
-        }.into());
-        self.new_objects.insert(slid, dictionary! {
-            "Type" => "SigFieldLock",
-            "Action" => "All"
-        }.into());
-
-        let mut sig_dict = dictionary! {
-            "Type" => "Sig",
-            "Filter" => "Adobe.PPKLite",
-            "SubFilter" => "ETSI.CAdES.detached",
-            "Contents" => lopdf::Object::String(vec![0; 8192], lopdf::StringFormat::Hexadecimal),
-            "ByteRange" => lopdf::Object::String(vec![0; 17], lopdf::StringFormat::Hexadecimal),
-            "M" => sig_info.date.unwrap_or_else(|| chrono::Utc::now()).naive_utc().format("D:%Y%m%d%H%M%SZ").to_string(),
-            "Reason" => sig_info.reason.as_deref().unwrap_or("Signed with AS207960 eSign").to_string(),
-            "Prop_build" => dictionary! {
-                "App" => dictionary! {
-                    "Name" => "AS207960 eSign",
-                    "REx" => env!("CARGO_PKG_VERSION")
+        let (img_bytes, img_bytes_format, bits_per_component, mask_bytes) = match img_data.bit_depth {
+            png::BitDepth::One => {
+                match img_data.color_type {
+                    png::ColorType::Grayscale => {
+                        (img_bytes.to_vec(), "DeviceGray", 1, None)
+                    }
+                    png::ColorType::Rgb => {
+                        (img_bytes.to_vec(), "DeviceRGB", 1, None)
+                    }
+                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
                 }
             }
-        };
-        if let Some(name) = &sig_info.name {
-            sig_dict.set("Name", name.to_string());
-        }
-        if let Some(loc) = &sig_info.location {
-            sig_dict.set("Location", loc.to_string());
-        }
-        if let Some(contact_info) = &sig_info.contact_info {
-            sig_dict.set("ContactInfo", contact_info.to_string());
-        }
-        self.new_objects.insert(dsid, sig_dict.into());
-
-        let page_1 = self.page_dict(1)?;
-        let page_1_annotations = if page_1.has(b"Annots") {
-            let r = page_1.get_mut(b"Annots").unwrap();
-            if let Ok(r) = r.as_reference() {
-                let o = self.inner_doc.get_object(r).unwrap().clone();
-                self.new_objects.insert(r, o);
-                self.new_objects.get_mut(&r).unwrap()
-            } else {
-                r
+            png::BitDepth::Two => {
+                match img_data.color_type {
+                    png::ColorType::Grayscale => {
+                        (img_bytes.to_vec(), "DeviceGray", 2, None)
+                    }
+                    png::ColorType::Rgb => {
+                        (img_bytes.to_vec(), "DeviceRGB", 2, None)
+                    }
+                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
+                }
             }
-        } else {
-            page_1.set("Annots", lopdf::Object::Array(vec![]));
-            page_1.get_mut(b"Annots").unwrap()
-        }.as_array_mut().unwrap();
+            png::BitDepth::Four => {
+                match img_data.color_type {
+                    png::ColorType::Grayscale => {
+                        (img_bytes.to_vec(), "DeviceGray", 4, None)
+                    }
+                    png::ColorType::Rgb => {
+                        (img_bytes.to_vec(), "DeviceRGB", 4, None)
+                    }
+                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
+                }
+            }
+            png::BitDepth::Eight => {
+                match img_data.color_type {
+                    png::ColorType::Grayscale => {
+                        (img_bytes.to_vec(), "DeviceGray", 8, None)
+                    }
+                    png::ColorType::Rgb => {
+                        (img_bytes.to_vec(), "DeviceRGB", 8, None)
+                    }
+                    png::ColorType::GrayscaleAlpha => {
+                        let mut gray_bytes = Vec::with_capacity(img_bytes.len() / 2);
+                        let mut alpha_bytes = Vec::with_capacity(img_bytes.len() / 2);
 
-        page_1_annotations.push(lopdf::Object::Reference(sid));
+                        for (i, byte) in img_bytes.iter().enumerate() {
+                            if i % 2 == 0 {
+                                gray_bytes.push(*byte);
+                            } else {
+                                alpha_bytes.push(*byte);
+                            }
+                        }
 
-        Ok(dsid)
+                        (gray_bytes, "DeviceGray", 8, Some(alpha_bytes))
+                    }
+                    png::ColorType::Rgba => {
+                        let mut rgb_bytes = Vec::with_capacity((img_bytes.len() / 4) * 3);
+                        let mut alpha_bytes = Vec::with_capacity(img_bytes.len() / 4);
+
+                        for (i, byte) in img_bytes.iter().enumerate() {
+                            if i % 4 == 3 {
+                                alpha_bytes.push(*byte);
+                            } else {
+                                rgb_bytes.push(*byte);
+                            }
+                        }
+
+                        (rgb_bytes, "DeviceRGB", 8, Some(alpha_bytes))
+                    }
+                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
+                }
+            }
+            _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
+        };
+
+        let mut img_zlib_encoder = deflate::write::ZlibEncoder::new(Vec::new(), deflate::Compression::Default);
+        img_zlib_encoder.write_all(&img_bytes).unwrap();
+        let compressed_img_data = img_zlib_encoder.finish().unwrap();
+        let mut img_hex_data = hex::encode(&compressed_img_data);
+        img_hex_data.push('>');
+
+        let mask_obj_id = mask_bytes.map(|mask_bytes| {
+            let mut mask_zlib_encoder = deflate::write::ZlibEncoder::new(Vec::new(), deflate::Compression::Default);
+            mask_zlib_encoder.write_all(&mask_bytes).unwrap();
+            let compressed_mask_data = mask_zlib_encoder.finish().unwrap();
+            let mut mask_hex_data = hex::encode(&compressed_mask_data);
+            mask_hex_data.push('>');
+
+            let mut mask_dict = lopdf::Dictionary::new();
+            mask_dict.set("Type", lopdf::Object::Name("XObject".into()));
+            mask_dict.set("Subtype", lopdf::Object::Name("Image".into()));
+            mask_dict.set("ColorSpace", lopdf::Object::Name("DeviceGray".into()));
+            mask_dict.set("Width", lopdf::Object::Integer(img_data.width.into()));
+            mask_dict.set("Height", lopdf::Object::Integer(img_data.height.into()));
+            mask_dict.set("BitsPerComponent", lopdf::Object::Integer(bits_per_component));
+            mask_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
+            let mask_obj = lopdf::Stream::new(mask_dict, mask_hex_data.into())
+                .with_compression(false);
+            self.max_id += 1;
+            let oid = (self.max_id, 0);
+            self.new_objects.insert(oid, mask_obj.into());
+            oid
+        });
+
+        let mut img_dict = lopdf::Dictionary::new();
+        img_dict.set("Type", lopdf::Object::Name("XObject".into()));
+        img_dict.set("Subtype", lopdf::Object::Name("Image".into()));
+        img_dict.set("ColorSpace", lopdf::Object::Name(img_bytes_format.into()));
+        img_dict.set("Width", lopdf::Object::Integer(img_data.width.into()));
+        img_dict.set("Height", lopdf::Object::Integer(img_data.height.into()));
+        img_dict.set("BitsPerComponent", lopdf::Object::Integer(bits_per_component));
+        img_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
+        if let Some(mask_obj_id) = mask_obj_id {
+            img_dict.set("SMask", lopdf::Object::Reference(mask_obj_id.into()));
+        }
+        let img_obj = lopdf::Stream::new(img_dict, img_hex_data.into())
+            .with_compression(false);
+
+        self.max_id += 1;
+        let img_obj_id = (self.max_id, 0);
+        self.new_objects.insert(img_obj_id.clone(), img_obj.into());
+
+        Ok(img_obj_id)
+    }
+
+    // fn page_dict(&mut self, page: u32) -> Result<&mut lopdf::Dictionary, lopdf::Error> {
+    //     let page_id = match self.pages.get(&page).map(|o| *o) {
+    //         Some(i) => i,
+    //         None => return Err(lopdf::Error::PageNumberNotFound(page))
+    //     };
+    //
+    //     if !self.new_objects.contains_key(&page_id) {
+    //         let page = self.inner_doc.get_object(page_id).and_then(lopdf::Object::as_dict).unwrap().clone();
+    //         self.new_objects.insert(page_id, page.into());
+    //     }
+    //
+    //     Ok(self.new_objects.get_mut(&page_id).unwrap().as_dict_mut().unwrap())
+    // }
+
+    fn png_error_to_lopdf(err: png::DecodingError) -> lopdf::Error {
+        match err {
+            png::DecodingError::IoError(io) => lopdf::Error::IO(io),
+            png::DecodingError::Format(f) => lopdf::Error::Syntax(f.to_string()),
+            png::DecodingError::Parameter(f) => lopdf::Error::Syntax(f.to_string()),
+            png::DecodingError::LimitsExceeded => lopdf::Error::IO(std::io::ErrorKind::OutOfMemory.into())
+        }
     }
 
     fn create_or_get_font_id(&mut self) -> lopdf::ObjectId {
@@ -367,7 +434,9 @@ impl Document {
         } else {
             self.max_id += 1;
             let afid = (self.max_id, 0);
-            self.new_objects.insert(afid, dictionary!().into());
+            self.new_objects.insert(afid, dictionary! {
+                "ProcSet" => lopdf::Object::Array(vec![lopdf::Object::Name(b"PDF".to_vec()), lopdf::Object::Name(b"Text".to_vec())])
+            }.into());
 
             let mut c = catalog.clone();
             c.set("AcroForm", lopdf::Object::Reference(afid));
@@ -521,15 +590,6 @@ impl InnerDocumentPage<'_, '_> {
         })
     }
 
-    fn png_error_to_lopdf(err: png::DecodingError) -> lopdf::Error {
-        match err {
-            png::DecodingError::IoError(io) => lopdf::Error::IO(io),
-            png::DecodingError::Format(f) => lopdf::Error::Syntax(f.to_string()),
-            png::DecodingError::Parameter(f) => lopdf::Error::Syntax(f.to_string()),
-            png::DecodingError::LimitsExceeded => lopdf::Error::IO(std::io::ErrorKind::OutOfMemory.into())
-        }
-    }
-
     fn add_xobject<N: Into<Vec<u8>>>(&mut self, xobject_name: N, xobject_id: lopdf::ObjectId) -> Result<(), lopdf::Error> {
         let resources = self.resources();
         if !resources.has(b"XObject") {
@@ -556,142 +616,7 @@ impl InnerDocumentPage<'_, '_> {
         Ok(())
     }
 
-    pub fn add_png_img(&mut self, data: &[u8], top: f64, left: f64, width: f64, height: f64) -> Result<(), lopdf::Error> {
-        let img = png::Decoder::new(data);
-        let mut img_reader = match img.read_info() {
-            Ok(i) => i,
-            Err(e) => return Err(Self::png_error_to_lopdf(e))
-        };
-        let mut img_buf = vec![0; img_reader.output_buffer_size()];
-        let img_data = match img_reader.next_frame(&mut img_buf) {
-            Ok(i) => i,
-            Err(e) => return Err(Self::png_error_to_lopdf(e))
-        };
-        let img_bytes = &img_buf[..img_data.buffer_size()];
-
-        let (img_bytes, img_bytes_format, bits_per_component, mask_bytes) = match img_data.bit_depth {
-            png::BitDepth::One => {
-                match img_data.color_type {
-                    png::ColorType::Grayscale => {
-                        (img_bytes.to_vec(), "DeviceGray", 1, None)
-                    }
-                    png::ColorType::Rgb => {
-                        (img_bytes.to_vec(), "DeviceRGB", 1, None)
-                    }
-                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
-                }
-            }
-            png::BitDepth::Two => {
-                match img_data.color_type {
-                    png::ColorType::Grayscale => {
-                        (img_bytes.to_vec(), "DeviceGray", 2, None)
-                    }
-                    png::ColorType::Rgb => {
-                        (img_bytes.to_vec(), "DeviceRGB", 2, None)
-                    }
-                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
-                }
-            }
-            png::BitDepth::Four => {
-                match img_data.color_type {
-                    png::ColorType::Grayscale => {
-                        (img_bytes.to_vec(), "DeviceGray", 4, None)
-                    }
-                    png::ColorType::Rgb => {
-                        (img_bytes.to_vec(), "DeviceRGB", 4, None)
-                    }
-                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
-                }
-            }
-            png::BitDepth::Eight => {
-                match img_data.color_type {
-                    png::ColorType::Grayscale => {
-                        (img_bytes.to_vec(), "DeviceGray", 8, None)
-                    }
-                    png::ColorType::Rgb => {
-                        (img_bytes.to_vec(), "DeviceRGB", 8, None)
-                    }
-                    png::ColorType::GrayscaleAlpha => {
-                        let mut gray_bytes = Vec::with_capacity(img_bytes.len() / 2);
-                        let mut alpha_bytes = Vec::with_capacity(img_bytes.len() / 2);
-
-                        for (i, byte) in img_bytes.iter().enumerate() {
-                            if i % 2 == 0 {
-                                gray_bytes.push(*byte);
-                            } else {
-                                alpha_bytes.push(*byte);
-                            }
-                        }
-
-                        (gray_bytes, "DeviceGray", 8, Some(alpha_bytes))
-                    }
-                    png::ColorType::Rgba => {
-                        let mut rgb_bytes = Vec::with_capacity((img_bytes.len() / 4) * 3);
-                        let mut alpha_bytes = Vec::with_capacity(img_bytes.len() / 4);
-
-                        for (i, byte) in img_bytes.iter().enumerate() {
-                            if i % 4 == 3 {
-                                alpha_bytes.push(*byte);
-                            } else {
-                                rgb_bytes.push(*byte);
-                            }
-                        }
-
-                        (rgb_bytes, "DeviceRGB", 8, Some(alpha_bytes))
-                    }
-                    _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
-                }
-            }
-            _ => return Err(lopdf::Error::IO(std::io::ErrorKind::Unsupported.into()))
-        };
-
-        let mut img_zlib_encoder = deflate::write::ZlibEncoder::new(Vec::new(), deflate::Compression::Default);
-        img_zlib_encoder.write_all(&img_bytes).unwrap();
-        let compressed_img_data = img_zlib_encoder.finish().unwrap();
-        let mut img_hex_data = hex::encode(&compressed_img_data);
-        img_hex_data.push('>');
-
-        let mask_obj_id = mask_bytes.map(|mask_bytes| {
-            let mut mask_zlib_encoder = deflate::write::ZlibEncoder::new(Vec::new(), deflate::Compression::Default);
-            mask_zlib_encoder.write_all(&mask_bytes).unwrap();
-            let compressed_mask_data = mask_zlib_encoder.finish().unwrap();
-            let mut mask_hex_data = hex::encode(&compressed_mask_data);
-            mask_hex_data.push('>');
-
-            let mut mask_dict = lopdf::Dictionary::new();
-            mask_dict.set("Type", lopdf::Object::Name("XObject".into()));
-            mask_dict.set("Subtype", lopdf::Object::Name("Image".into()));
-            mask_dict.set("ColorSpace", lopdf::Object::Name("DeviceGray".into()));
-            mask_dict.set("Width", lopdf::Object::Integer(img_data.width.into()));
-            mask_dict.set("Height", lopdf::Object::Integer(img_data.height.into()));
-            mask_dict.set("BitsPerComponent", lopdf::Object::Integer(bits_per_component));
-            mask_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
-            let mask_obj = lopdf::Stream::new(mask_dict, mask_hex_data.into())
-                .with_compression(false);
-            self.doc.max_id += 1;
-            let oid = (self.doc.max_id, 0);
-            self.doc.new_objects.insert(oid, mask_obj.into());
-            oid
-        });
-
-        let mut img_dict = lopdf::Dictionary::new();
-        img_dict.set("Type", lopdf::Object::Name("XObject".into()));
-        img_dict.set("Subtype", lopdf::Object::Name("Image".into()));
-        img_dict.set("ColorSpace", lopdf::Object::Name(img_bytes_format.into()));
-        img_dict.set("Width", lopdf::Object::Integer(img_data.width.into()));
-        img_dict.set("Height", lopdf::Object::Integer(img_data.height.into()));
-        img_dict.set("BitsPerComponent", lopdf::Object::Integer(bits_per_component));
-        img_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
-        if let Some(mask_obj_id) = mask_obj_id {
-            img_dict.set("SMask", lopdf::Object::Reference(mask_obj_id.into()));
-        }
-        let img_obj = lopdf::Stream::new(img_dict, img_hex_data.into())
-            .with_compression(false);
-
-        self.doc.max_id += 1;
-        let img_obj_id = (self.doc.max_id, 0);
-        self.doc.new_objects.insert(img_obj_id, img_obj.into());
-
+    pub fn add_png_img(&mut self, img_obj_id: lopdf::ObjectId, top: f64, left: f64, width: f64, height: f64) -> Result<(), lopdf::Error> {
         let pos = self.convert_to_pdf_space(top, left, width, height)?;
 
         let img_name = format!("X{}", uuid::Uuid::new_v4());
@@ -708,5 +633,133 @@ impl InnerDocumentPage<'_, '_> {
         ]);
 
         Ok(())
+    }
+
+    pub fn setup_signature(&mut self, sig_info: &SigningInfo) -> Result<lopdf::ObjectId, lopdf::Error> {
+        let pos = self.convert_to_pdf_space(sig_info.top, sig_info.left, sig_info.width, sig_info.height)?;
+
+        self.doc.max_id += 1;
+        let sid = (self.doc.max_id, 0);
+        self.doc.max_id += 1;
+        let slid = (self.doc.max_id, 0);
+        self.doc.max_id += 1;
+        let dsid = (self.doc.max_id, 0);
+        self.doc.max_id += 1;
+        let xoid = (self.doc.max_id, 0);
+
+        let acro_form = self.doc.acro_form()?;
+
+        acro_form.set("SigFlags", lopdf::Object::Integer(3));
+
+        let acro_fields = if acro_form.has(b"Fields") {
+            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        } else {
+            acro_form.set("Fields", lopdf::Object::Array(vec![]));
+            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        };
+
+        acro_fields.push(lopdf::Object::Reference(sid));
+
+        self.doc.new_objects.insert(sid, dictionary! {
+            "FT" => "Sig",
+            "Type" => "Annot",
+            "Subtype" => "Widget",
+            "Rect" => lopdf::Object::Array(vec![pos.x.into(), pos.y.into(), (pos.x + pos.w).into(), (pos.h + pos.y).into()]),
+            "F" => 132u32,
+            // "Lock" => lopdf::Object::Reference(slid),
+            "V" => lopdf::Object::Reference(dsid),
+            "T" => lopdf::Object::String(format!("Signature{}", uuid::Uuid::new_v4()).into(), lopdf::StringFormat::Literal),
+            "P" => lopdf::Object::Reference(self.page_id),
+            "AP" => dictionary! {
+                "N" => lopdf::Object::Reference(xoid)
+            }
+        }.into());
+        self.doc.new_objects.insert(slid, dictionary! {
+            "Type" => "SigFieldLock",
+            "Action" => "All"
+        }.into());
+
+        let mut sig_dict = dictionary! {
+            "Type" => "Sig",
+            "Filter" => "Adobe.PPKLite",
+            "SubFilter" => "ETSI.CAdES.detached",
+            "Contents" => lopdf::Object::String(vec![0; 8192], lopdf::StringFormat::Hexadecimal),
+            "ByteRange" => lopdf::Object::String(vec![0; 17], lopdf::StringFormat::Hexadecimal),
+            "M" => lopdf::Object::String(
+                sig_info.date.unwrap_or_else(|| chrono::Utc::now()).naive_utc().format("D:%Y%m%d%H%M%SZ").to_string().into_bytes(),
+                lopdf::StringFormat::Literal
+            ),
+            "Reason" => lopdf::Object::String(
+                sig_info.reason.as_deref().unwrap_or("Signed with AS207960 eSign").into(),
+                lopdf::StringFormat::Literal
+            ),
+            "Prop_build" => dictionary! {
+                "App" => dictionary! {
+                    "Name" => lopdf::Object::String("AS207960 eSign".into(), lopdf::StringFormat::Literal),
+                    "REx" => lopdf::Object::String(env!("CARGO_PKG_VERSION").into(), lopdf::StringFormat::Literal)
+                }
+            }
+        };
+        if let Some(name) = &sig_info.name {
+            sig_dict.set("Name", lopdf::Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+        }
+        if let Some(loc) = &sig_info.location {
+            sig_dict.set("Location", lopdf::Object::String(loc.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+        }
+        if let Some(contact_info) = &sig_info.contact_info {
+            sig_dict.set("ContactInfo", lopdf::Object::String(contact_info.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+        }
+        self.doc.new_objects.insert(dsid, sig_dict.into());
+
+        let img_name = format!("X{}", uuid::Uuid::new_v4());
+        let xobject_commands = lopdf::content::Content {
+            operations: vec![
+                lopdf::content::Operation::new("q", vec![]),
+                lopdf::content::Operation::new(
+                    "cm",
+                    vec![pos.w.into(), 0.into(), 0.into(), pos.h.into(), 0.into(), 0.into()],
+                ),
+                lopdf::content::Operation::new("Do", vec![img_name.clone().into()]),
+                lopdf::content::Operation::new("Q", vec![]),
+            ]
+        }.encode().unwrap();
+        let xobject = lopdf::Stream::new(dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => lopdf::Object::Array(vec![0.0f64.into(), 0.0f64.into(), pos.w.into(), pos.h.into()]),
+            "FormType" => 1,
+            "Resources" => dictionary! {
+                "ProcSet" => lopdf::Object::Array(vec![lopdf::Object::Name(b"PDF".to_vec()), lopdf::Object::Name(b"Text".to_vec())]),
+                "Font" => dictionary! {
+                    "F_as207690_esign_Helvetica_xobj" => dictionary! {
+                        "Type" => "Font",
+                        "Subtype" => "Type1",
+                        "BaseFont" => "Helvetica"
+                    }
+                },
+                "XObject" => dictionary! {
+                    img_name => sig_info.img_obj_id
+                }
+            },
+        }, xobject_commands);
+        self.doc.new_objects.insert(xoid, xobject.into());
+
+        let page_1_annotations = if self.page.has(b"Annots") {
+            let r = self.page.get_mut(b"Annots").unwrap();
+            if let Ok(r) = r.as_reference() {
+                let o = self.doc.inner_doc.get_object(r).unwrap().clone();
+                self.doc.new_objects.insert(r, o);
+                self.doc.new_objects.get_mut(&r).unwrap()
+            } else {
+                r
+            }
+        } else {
+            self.page.set("Annots", lopdf::Object::Array(vec![]));
+            self.page.get_mut(b"Annots").unwrap()
+        }.as_array_mut().unwrap();
+
+        page_1_annotations.push(lopdf::Object::Reference(sid));
+
+        Ok(dsid)
     }
 }

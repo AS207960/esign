@@ -134,6 +134,8 @@ pub async fn sign_envelope(
 
     fields.sort_by_key(|f| f.0.page);
 
+    let mut sig_oid = None;
+
     for (page_num, fields) in fields.into_iter().group_by(|f| f.0.page).into_iter() {
         let page = match pdf_doc.page(page_num as u32) {
             Ok(p) => p,
@@ -154,9 +156,24 @@ pub async fn sign_envelope(
                             Ok(b) => b,
                             Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error decoding base64: {}", err)))
                         };
-                        match page.add_png_img(&img_bytes, field.top_offset, field.left_offset, field.width, field.height) {
-                            Ok(()) => {},
+                        let img_obj_id = match page.doc.png_to_xobj(&img_bytes) {
+                            Ok(id) => id,
                             Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error adding PNG to page {}: {}", page_num, err)))
+                        };
+                        match page.setup_signature(&crate::pdf::SigningInfo {
+                            name: Some(recipient.email.clone()),
+                            contact_info: Some(recipient.email.clone()),
+                            date: Some(timestamp.clone()),
+                            reason: None,
+                            location: Some(format!("{} ({})", client_meta.ip, client_meta.user_agent)),
+                            top: field.top_offset,
+                            left: field.left_offset,
+                            width: field.width,
+                            height: field.height,
+                            img_obj_id,
+                        }) {
+                            Ok(oid) => sig_oid.insert(oid),
+                            Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error signing page {}: {}", page_num, err)))
                         };
                     }
                 }
@@ -168,14 +185,14 @@ pub async fn sign_envelope(
         }?;
     }
 
-    let pdf_doc_bytes = match pdf_doc.finalise(conf.signing_info.map(|s| crate::pdf::SigningInfo {
-        name: Some(recipient.email.clone()),
-        contact_info: Some(recipient.email.clone()),
-        date: Some(timestamp.clone()),
-        reason: None,
-        location: Some(format!("{} ({})", client_meta.ip, client_meta.user_agent)),
-        keys: s
-    })).await  {
+    let pdf_doc_bytes = match pdf_doc.finalise(if let (Some(o), Some(s)) = (sig_oid, conf.signing_info) {
+        Some(crate::pdf::SigningFinalisationInfo {
+            oid: o,
+            keys: s
+        })
+    } else {
+        None
+    }).await  {
         Ok(b) => b,
         Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error outputting PDF: {}", err)))
     };

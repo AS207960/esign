@@ -155,7 +155,7 @@ spec:
             claimName: esign-files
       containers:
         - name: frontend
-          image: as207960/as207960-esign:19
+          image: as207960/as207960-esign:22
           imagePullPolicy: IfNotPresent
           env:
             - name: RUST_LOG
@@ -210,7 +210,7 @@ spec:
             claimName: esign-files
       containers:
         - name: tasks
-          image: as207960/as207960-esign:19
+          image: as207960/as207960-esign:22
           imagePullPolicy: IfNotPresent
           command: ["/as207960-esign/tasks"]
           resources:

@@ -20,3 +20,9 @@ use_tls = true
 [debug.smtp.auth]
 username = "as207960/main"
 password = "K47LyJQ8QYWPlPnwighr5F65"
+
+[debug.signing]
+cert = "priv/cert.pem"
+cert_chain = []
+hsm_pin = ""
+pkcs11_key_id = ""

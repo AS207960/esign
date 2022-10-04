@@ -318,7 +318,7 @@ pub async fn template_submit<'a>(
             id: uuid::Uuid::new_v4(),
             envelope_id: new_envelope.id.clone(),
             email: recipient_email.to_string(),
-            recipient_order: (i + 1) as i64,
+            recipient_order: (i + 1) as i32,
             key: tasks::make_recipient_key(),
             completed: false,
         });

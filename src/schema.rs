@@ -29,10 +29,10 @@ table! {
     template_fields (id) {
         id -> Uuid,
         template_id -> Uuid,
-        signing_order -> Int8,
+        signing_order -> Int4,
         field_type -> crate::schema::FieldTypeMapping,
         required -> Bool,
-        page -> Int8,
+        page -> Int4,
         top_offset -> Float8,
         left_offset -> Float8,
         width -> Float8,
@@ -64,7 +64,7 @@ table! {
         id -> Uuid,
         envelope_id -> Uuid,
         email -> Varchar,
-        recipient_order -> Int8,
+        recipient_order -> Int4,
         key -> Varchar,
         completed -> Bool,
     }

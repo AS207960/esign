@@ -18,6 +18,7 @@ extern crate lopdf;
 use rocket_sync_db_pools::database;
 use celery::prelude::*;
 use rocket_sync_db_pools::Poolable;
+use foreign_types_shared::ForeignType;
 
 pub mod csrf;
 mod schema;
@@ -29,8 +30,6 @@ mod files;
 pub mod oidc;
 
 const FILES_DIR: &'static str = "./files/";
-
-use foreign_types_shared::ForeignType;
 
 fn cvt_p<T>(r: *mut T) -> Result<*mut T, openssl::error::ErrorStack> {
     if r.is_null() {
@@ -134,10 +133,30 @@ pub struct OIDCConfig {
 }
 
 #[derive(Deserialize)]
-pub struct SigningConfig {
+pub struct SigningConfigKeyHSM {
     hsm_pin: String,
     hsm_provider: Option<String>,
     pkcs11_key_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename = "hsm")]
+pub struct SigningConfigKeyFile {
+    key_file: String,
+    key_pass: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum SigningConfigKey {
+    File(SigningConfigKeyFile),
+    HSM(SigningConfigKeyHSM)
+}
+
+#[derive(Deserialize)]
+pub struct SigningConfig {
+    #[serde(flatten)]
+    key: SigningConfigKey,
     cert: String,
     cert_chain: Vec<String>
 }
@@ -192,25 +211,6 @@ pub async fn setup() -> App {
 
     let signing_info = match config.signing {
         Some(ref s) => {
-            let p11_engine = setup_pkcs11_engine(&s.hsm_pin, s.hsm_provider.as_deref()).await;
-
-            info!("Using PKCS#11 key ID {}", s.pkcs11_key_id);
-            let engine_key_id = std::ffi::CString::new(s.pkcs11_key_id.clone()).unwrap();
-            let pkey = tokio::task::spawn_blocking(move || -> std::io::Result<openssl::pkey::PKey<openssl::pkey::Private>> {
-                unsafe {
-                    trace!("Loading OpenSSL UI");
-                    let ui = cvt_p(openssl_sys::UI_OpenSSL())?;
-                    trace!("Loading private key");
-                    let priv_key = cvt_p(openssl_sys::ENGINE_load_private_key(
-                        **p11_engine.claim(),
-                        engine_key_id.as_ptr(),
-                        ui,
-                        std::ptr::null_mut(),
-                    ))?;
-                    Ok(openssl::pkey::PKey::from_ptr(priv_key))
-                }
-            })
-            .await.unwrap().expect("Unable to setup pkey");
             let cert_bytes = tokio::fs::read(&s.cert).await.expect("Unable to read signing certificate");
             let cert = openssl::x509::X509::from_pem(&cert_bytes).expect("Unable to parse signing certificate");
 
@@ -221,6 +221,37 @@ pub async fn setup() -> App {
                 let chain_cert = openssl::x509::X509::from_pem(&cert_bytes).expect("Unable to parse signing certificate");
                 cert_chain.push(chain_cert);
             }
+
+            let pkey = match &s.key {
+                SigningConfigKey::HSM(h) => {
+                    let p11_engine = setup_pkcs11_engine(&h.hsm_pin, h.hsm_provider.as_deref()).await;
+
+                    info!("Using PKCS#11 key ID {}", h.pkcs11_key_id);
+                    let engine_key_id = std::ffi::CString::new(h.pkcs11_key_id.clone()).unwrap();
+                    tokio::task::spawn_blocking(move || -> std::io::Result<openssl::pkey::PKey<openssl::pkey::Private>> {
+                        unsafe {
+                            trace!("Loading OpenSSL UI");
+                            let ui = cvt_p(openssl_sys::UI_OpenSSL())?;
+                            trace!("Loading private key");
+                            let priv_key = cvt_p(openssl_sys::ENGINE_load_private_key(
+                                **p11_engine.claim(),
+                                engine_key_id.as_ptr(),
+                                ui,
+                                std::ptr::null_mut(),
+                            ))?;
+                            Ok(openssl::pkey::PKey::from_ptr(priv_key))
+                        }
+                    })
+                        .await.unwrap().expect("Unable to setup pkey")
+                }
+                SigningConfigKey::File(f) => {
+                    let pkey_bytes = tokio::fs::read(&f.key_file).await.expect("Unable to read signing key");
+                    openssl::pkey::PKey::private_key_from_pem_passphrase(
+                        &pkey_bytes, f.key_pass.as_deref().unwrap_or_else(|| "").as_bytes()
+                    ).expect("Unable to parse signing key")
+                }
+            };
+
 
             Some(SigningInfo {
                 signing_pkey: pkey,
