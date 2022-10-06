@@ -692,13 +692,7 @@ impl InnerDocumentPage<'_, '_> {
             "Reason" => lopdf::Object::String(
                 sig_info.reason.as_deref().unwrap_or("Signed with AS207960 eSign").into(),
                 lopdf::StringFormat::Literal
-            ),
-            "Prop_Build" => dictionary! {
-                "App" => dictionary! {
-                    "Name" => "AS207960 eSign",
-                    "REx" => env!("CARGO_PKG_VERSION")
-                }
-            }
+            )
         };
         if let Some(name) = &sig_info.name {
             sig_dict.set("Name", lopdf::Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal));
