@@ -55,5 +55,5 @@ lto = true
 panic = "abort"
 
 [patch.crates-io]
-openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "0c761c8b5e2b6f18797b1cb06a6de06bf2957684" }
-openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "0c761c8b5e2b6f18797b1cb06a6de06bf2957684" }
+openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "c89e3385c386aa441293864fe531719d9e8e3e45" }
+openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "c89e3385c386aa441293864fe531719d9e8e3e45" }

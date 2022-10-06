@@ -168,6 +168,9 @@ impl Document {
                             null_mut(), null_mut(), null_mut(),
                             signed_bytes_bio.as_ptr(), flags.bits()
                         )).map_err(|e| e.to_string())?;
+                        for cert in &sig_info.keys.signing_cert_chain {
+                            cvt(openssl_sys::CMS_add0_cert(cms, cert.as_ptr())).map_err(|e| e.to_string())?;
+                        }
                         let si = cvt_p(openssl_sys::CMS_add1_signer(
                             cms, sig_info.keys.signing_cert.as_ptr(), sig_info.keys.signing_pkey.as_ptr(),
                             openssl_sys::EVP_sha256(), flags.bits()
