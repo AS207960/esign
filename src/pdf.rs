@@ -693,10 +693,10 @@ impl InnerDocumentPage<'_, '_> {
                 sig_info.reason.as_deref().unwrap_or("Signed with AS207960 eSign").into(),
                 lopdf::StringFormat::Literal
             ),
-            "Prop_build" => dictionary! {
+            "Prop_Build" => dictionary! {
                 "App" => dictionary! {
-                    "Name" => lopdf::Object::String("AS207960 eSign".into(), lopdf::StringFormat::Literal),
-                    "REx" => lopdf::Object::String(env!("CARGO_PKG_VERSION").into(), lopdf::StringFormat::Literal)
+                    "Name" => "AS207960 eSign",
+                    "REx" => env!("CARGO_PKG_VERSION")
                 }
             }
         };
