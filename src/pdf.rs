@@ -341,15 +341,16 @@ impl Document {
             let compressed_mask_data = mask_zlib_encoder.finish().unwrap();
             let mut mask_hex_data = hex::encode(&compressed_mask_data);
             mask_hex_data.push('>');
-
-            let mut mask_dict = lopdf::Dictionary::new();
-            mask_dict.set("Type", lopdf::Object::Name("XObject".into()));
-            mask_dict.set("Subtype", lopdf::Object::Name("Image".into()));
-            mask_dict.set("ColorSpace", lopdf::Object::Name("DeviceGray".into()));
-            mask_dict.set("Width", lopdf::Object::Integer(img_data.width.into()));
-            mask_dict.set("Height", lopdf::Object::Integer(img_data.height.into()));
-            mask_dict.set("BitsPerComponent", lopdf::Object::Integer(bits_per_component));
-            mask_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
+            
+            let mut mask_dict = dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "ColorSpace" => "DeviceGray",
+                "Width" => lopdf::Object::Integer(img_data.width.into()),
+                "Height" => lopdf::Object::Integer(img_data.height.into()),
+                "BitsPerComponent" => lopdf::Object::Integer(bits_per_component),
+                "Filter" => lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()])
+            };
             let mask_obj = lopdf::Stream::new(mask_dict, mask_hex_data.into())
                 .with_compression(false);
             self.max_id += 1;
@@ -358,14 +359,16 @@ impl Document {
             oid
         });
 
-        let mut img_dict = lopdf::Dictionary::new();
-        img_dict.set("Type", lopdf::Object::Name("XObject".into()));
-        img_dict.set("Subtype", lopdf::Object::Name("Image".into()));
-        img_dict.set("ColorSpace", lopdf::Object::Name(img_bytes_format.into()));
-        img_dict.set("Width", lopdf::Object::Integer(img_data.width.into()));
-        img_dict.set("Height", lopdf::Object::Integer(img_data.height.into()));
-        img_dict.set("BitsPerComponent", lopdf::Object::Integer(bits_per_component));
-        img_dict.set("Filter", lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()]));
+        let mut img_dict = dictionary! {
+            "Type" => "XObject",
+            "Resources" => dictionary! {},
+            "Subtype" => "Image",
+            "ColorSpace" => img_bytes_format,
+            "Width" => lopdf::Object::Integer(img_data.width.into()),
+            "Height" => lopdf::Object::Integer(img_data.height.into()),
+            "BitsPerComponent" => lopdf::Object::Integer(bits_per_component),
+            "Filter" => lopdf::Object::Array(vec!["ASCIIHexDecode".into(), "FlateDecode".into()])
+        };
         if let Some(mask_obj_id) = mask_obj_id {
             img_dict.set("SMask", lopdf::Object::Reference(mask_obj_id.into()));
         }
