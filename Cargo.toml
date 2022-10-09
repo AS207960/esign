@@ -38,7 +38,7 @@ serde_json = "1"
 rocket-client-addr = "0.5"
 openidconnect = "2"
 openssl = "0"
-openssl-sys = { version = "=0.9.65", features = [] }
+openssl-sys = { version = "=0.9.76", features = [] }
 #openssl = { path = "../rust-openssl/openssl" }
 #openssl-sys = { path = "../rust-openssl/openssl-sys" }
 libc = "0.2"
@@ -47,6 +47,7 @@ ipnet = { version = "2", features = ["serde"] }
 bcder = "0.6"
 cryptographic-message-syntax = "0.7"
 x509-certificate = "0.6"
+asn1 = "0.12"
 
 [profile.release]
 strip = true
@@ -55,5 +56,5 @@ lto = true
 panic = "abort"
 
 [patch.crates-io]
-openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "c89e3385c386aa441293864fe531719d9e8e3e45" }
-openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "c89e3385c386aa441293864fe531719d9e8e3e45" }
+openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "f251a8d878dc3025bae3fbca4f1065f714dbe087" }
+openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "f251a8d878dc3025bae3fbca4f1065f714dbe087" }

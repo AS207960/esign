@@ -24,5 +24,5 @@ password = "K47LyJQ8QYWPlPnwighr5F65"
 [debug.signing]
 cert = "priv/cert.pem"
 cert_chain = []
-hsm_pin = ""
-pkcs11_key_id = ""
+key_file = "priv/key.pem"
+type = "file"

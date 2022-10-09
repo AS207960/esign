@@ -140,7 +140,7 @@ pub struct SigningConfigKeyHSM {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "type", rename = "hsm")]
+#[serde(tag = "type", rename = "file")]
 pub struct SigningConfigKeyFile {
     key_file: String,
     key_pass: Option<String>,

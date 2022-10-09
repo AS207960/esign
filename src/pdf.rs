@@ -2,6 +2,20 @@ use std::io::Write;
 use std::ptr::null_mut;
 use foreign_types_shared::ForeignType;
 use bcder::encode::Values;
+use asn1::SimpleAsn1Writable;
+
+#[repr(C)]
+pub struct CMS_ContentInfo {
+    pub version: libc::c_long,
+    pub sid: *mut openssl_sys::CMS_SignerIdentifier,
+    pub digest_algorithm: *mut openssl_sys::X509_ALGOR,
+    pub signed_attributes: *mut openssl_sys::stack_st_X509_ATTRIBUTE,
+    pub signature_algorithm: *mut openssl_sys::X509_ALGOR,
+    pub signature: *mut openssl_sys::ASN1_OCTET_STRING,
+    pub unsigned_attributes: *mut openssl_sys::stack_st_X509_ATTRIBUTE,
+    pub signer: *mut openssl_sys::X509,
+    pub pkey: *mut openssl_sys::EVP_PKEY,
+}
 
 fn cvt_p<T>(r: *mut T) -> Result<*mut T, openssl::error::ErrorStack> {
     if r.is_null() {
@@ -175,12 +189,35 @@ impl Document {
                             cms, sig_info.keys.signing_cert.as_ptr(), sig_info.keys.signing_pkey.as_ptr(),
                             openssl_sys::EVP_sha256(), flags.bits()
                         )).map_err(|e| e.to_string())?;
+
+                        // let certificate_hash =
+                        //     sig_info.keys.signing_cert.digest(openssl::hash::MessageDigest::sha256()).map_err(|e| e.to_string())?;
+                        // let signing_cert_bytes = asn1::write(|w| {
+                        //     w.write_element(&asn1::SequenceWriter::new(&|w| {
+                        //         w.write_element(&asn1::SequenceWriter::new(&|w| {
+                        //             w.write_element(&asn1::SequenceWriter::new(&|w| {
+                        //                 w.write_element(&certificate_hash.to_vec().as_slice())?;
+                        //                 w.write_element(&asn1::SequenceWriter::new(&|w| {
+                        //                     w.write_tlv(asn1::Sequence::TAG, |b| {
+                        //                         b.push_slice((*sig_info.keys.signing_cert.issuer_name()).to_der().unwrap().as_slice())?;
+                        //                         Ok(())
+                        //                     })
+                        //                 }))
+                        //             }))
+                        //         }))
+                        //     }))
+                        // }).map_err(|e| format!("{:?}", e))?;
+                        // openssl_sys::CMS_signed_add1_attr_by_OBJ(
+                        //     si, openssl::asn1::Asn1Object::from_str("1.2.840.113549.1.9.16.2.47").unwrap().as_ptr(),
+                        //     16, signing_cert_bytes.as_ptr() as *const libc::c_void, signing_cert_bytes.len() as i32
+                        // );
+
                         cvt(openssl_sys::CMS_final(
                             cms, signed_bytes_bio.as_ptr(), null_mut(), flags.bits()
                         )).map_err(|e| e.to_string())?;
                         let sig: &[u8] = std::slice::from_raw_parts(
-                            openssl_sys::ASN1_STRING_get0_data((*si).signature as *const openssl_sys::ASN1_STRING),
-                            openssl_sys::ASN1_STRING_length((*si).signature as *const openssl_sys::ASN1_STRING) as usize
+                            openssl_sys::ASN1_STRING_get0_data((*(si as *const CMS_ContentInfo)).signature as *const openssl_sys::ASN1_STRING),
+                            openssl_sys::ASN1_STRING_length((*(si as *const CMS_ContentInfo)).signature as *const openssl_sys::ASN1_STRING) as usize
                         );
                         let r = cryptographic_message_syntax::time_stamp_message_http(
                             "http://dd-at.ria.ee/tsa", &sig,
@@ -194,7 +231,7 @@ impl Document {
                         let rsds = rsd.as_slice();
                         cvt(openssl_sys::CMS_unsigned_add1_attr_by_NID(
                             si, openssl::nid::Nid::ID_SMIME_AA_TIMESTAMPTOKEN.as_raw(),
-                            16, rsds.as_ptr() as *const u8, rsds.len() as i32
+                            16, rsds.as_ptr() as *const libc::c_void, rsds.len() as i32
                         )).map_err(|e| e.to_string())?;
                         let l = cvt(openssl_sys::i2d_CMS_ContentInfo(cms, null_mut())).map_err(|e| e.to_string())?;
                         let mut buf = vec![0; l as usize];
@@ -341,7 +378,7 @@ impl Document {
             let compressed_mask_data = mask_zlib_encoder.finish().unwrap();
             let mut mask_hex_data = hex::encode(&compressed_mask_data);
             mask_hex_data.push('>');
-            
+
             let mut mask_dict = dictionary! {
                 "Type" => "XObject",
                 "Subtype" => "Image",
