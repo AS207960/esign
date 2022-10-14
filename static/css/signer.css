@@ -44,6 +44,18 @@ input:not([type=file]):valid {
     max-width: 100%;
 }
 
+#the-pdf .pdf-page .pdf-annotations {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+#the-pdf .pdf-page .pdf-annotations > * {
+    position: absolute;
+}
+
 #the-pdf .pdf-page .annotations {
     position: absolute;
     top: 0;

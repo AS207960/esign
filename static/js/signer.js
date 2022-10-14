@@ -43,6 +43,9 @@ PDFViewer.prototype.render = function () {
                     var annotationsDiv = document.createElement("div");
                     annotationsDiv.className = "annotations";
 
+                    var pdfAnnotationsDiv = document.createElement("div");
+                    pdfAnnotationsDiv.className = "pdf-annotations";
+
                     if (self.pageAnnotations[page.pageNumber]) {
                         for (var annotation of self.pageAnnotations[page.pageNumber]) {
                             var annotationObj = {
@@ -118,6 +121,7 @@ PDFViewer.prototype.render = function () {
                         }
                     }
 
+                    pageInnerDiv.appendChild(pdfAnnotationsDiv);
                     pageInnerDiv.appendChild(annotationsDiv);
                     self.pagesElms.push(pagesElm);
 
@@ -126,7 +130,8 @@ PDFViewer.prototype.render = function () {
                         viewport: viewport,
                         canvas: canvas,
                         ctx: context,
-                        annotations: annotations
+                        annotations: annotations,
+                        pdfAnnotationsDiv: pdfAnnotationsDiv,
                     });
                 });
                 pagePromises.push(pagePromise);
@@ -175,6 +180,29 @@ PDFViewer.prototype.mount = function (pdfContainer, signatureModal) {
             var renderTask = page.page.render(renderContext);
             renders[pageNum] = renderTask;
 
+            (function (page, outputScale2) {
+                page.page.getAnnotations().then(function (annotations) {
+                    page.pdfAnnotationsDiv.innerHTML = "";
+                    console.log(annotations);
+                    for (var annotation of annotations) {
+                        if (annotation.subtype === "FreeText") {
+                            console.log(annotation, page.viewport);
+                            var height = annotation.rect[3] - annotation.rect[1];
+                            var fontSize = Math.min(height * outputScale2 * 0.7, 14)
+                            var annotationElm = document.createElement("span");
+                            annotationElm.innerText = annotation.contents;
+                            annotationElm.style.fontSize = `${fontSize}px`;
+                            annotationElm.style.top = `${(page.viewport.height - annotation.rect[3]) * outputScale2}px`;
+                            annotationElm.style.left = `${annotation.rect[0] * outputScale2}px`;
+                            annotationElm.style.height = `${height * outputScale2}px`;
+                            console.log((annotation.rect[2] - annotation.rect[0]) * outputScale2);
+                            annotationElm.style.width = `${(annotation.rect[2] - annotation.rect[0]) * outputScale2}px`;
+                            page.pdfAnnotationsDiv.appendChild(annotationElm);
+                        }
+                    }
+                });
+            })(page, outputScale2);
+
             for (var annotation of page.annotations) {
                 var fontSize = Math.min(page.viewport.height * annotation.height * outputScale2 * 0.7, 14)
                 annotation.elm.style.top = `${page.viewport.height * annotation.top * outputScale2}px`;
@@ -187,8 +215,7 @@ PDFViewer.prototype.mount = function (pdfContainer, signatureModal) {
             (function (pageNum) {
                 promises.push(renderTask.promise.then(function () {
                     console.log(`Page ${pageNum} rendered`);
-                }, function () {
-                }));
+                }, function () {}));
             })(pageNum);
         }
     }
