@@ -118,6 +118,8 @@ pub async fn sign_envelope(
     let mut fields = fields;
     let base_path = std::path::Path::new(crate::FILES_DIR);
 
+    let first_sig = envelope.current_file == envelope.base_file;
+
     let mut base_file = match tokio::fs::File::open(base_path.join(envelope.current_file)).await {
         Ok(f) => f,
         Err(err) => return Err(celery::error::TaskError::ExpectedError(format!("Unable to read envelope file: {}", err)))
@@ -171,6 +173,7 @@ pub async fn sign_envelope(
                             width: field.width,
                             height: field.height,
                             img_obj_id,
+                            first_sig,
                         }) {
                             Ok(oid) => sig_oid.insert(oid),
                             Err(err) => return Err(celery::error::TaskError::UnexpectedError(format!("Error signing page {}: {}", page_num, err)))
