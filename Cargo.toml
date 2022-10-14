@@ -37,7 +37,7 @@ lettre = { version = "0.10.0-rc.5", default_features = false, features = ["build
 serde_json = "1"
 rocket-client-addr = "0.5"
 openidconnect = "2"
-openssl = "0"
+openssl = { version = "0", features = ["v111"] }
 openssl-sys = { version = "=0.9.76", features = [] }
 #openssl = { path = "../rust-openssl/openssl" }
 #openssl-sys = { path = "../rust-openssl/openssl-sys" }
@@ -56,5 +56,5 @@ lto = true
 panic = "abort"
 
 [patch.crates-io]
-openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "f251a8d878dc3025bae3fbca4f1065f714dbe087" }
-openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "f251a8d878dc3025bae3fbca4f1065f714dbe087" }
+openssl = { git = "https://github.com/AS207960/rust-openssl", rev = "ef5160de2cad987bc138bc81ae9da43b03158e61" }
+openssl-sys = { git = "https://github.com/AS207960/rust-openssl", rev = "ef5160de2cad987bc138bc81ae9da43b03158e61" }

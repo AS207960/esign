@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::ptr::null_mut;
-use foreign_types_shared::ForeignType;
+use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use bcder::encode::Values;
 use asn1::SimpleAsn1Writable;
 
@@ -190,26 +190,64 @@ impl Document {
                             openssl_sys::EVP_sha256(), flags.bits()
                         )).map_err(|e| e.to_string())?;
 
-                        // let certificate_hash =
-                        //     sig_info.keys.signing_cert.digest(openssl::hash::MessageDigest::sha256()).map_err(|e| e.to_string())?;
-                        // let signing_cert_bytes = asn1::write(|w| {
-                        //     w.write_element(&asn1::SequenceWriter::new(&|w| {
-                        //         w.write_element(&asn1::SequenceWriter::new(&|w| {
-                        //             w.write_element(&asn1::SequenceWriter::new(&|w| {
-                        //                 w.write_element(&certificate_hash.to_vec().as_slice())?;
-                        //                 w.write_element(&asn1::SequenceWriter::new(&|w| {
-                        //                     w.write_tlv(asn1::Sequence::TAG, |b| {
-                        //                         b.push_slice((*sig_info.keys.signing_cert.issuer_name()).to_der().unwrap().as_slice())?;
-                        //                         Ok(())
-                        //                     })
-                        //                 }))
-                        //             }))
-                        //         }))
-                        //     }))
-                        // }).map_err(|e| format!("{:?}", e))?;
+                        let certificate_hash =
+                            sig_info.keys.signing_cert.digest(openssl::hash::MessageDigest::sha256()).map_err(|e| e.to_string())?;
+                        let certificate_hash_sha1 =
+                            sig_info.keys.signing_cert.digest(openssl::hash::MessageDigest::sha1()).map_err(|e| e.to_string())?;
+                        let sn = sig_info.keys.signing_cert.serial_number();
+                        let sn_len = cvt(openssl_sys::i2d_ASN1_INTEGER(sn.as_ptr(), std::ptr::null_mut()))
+                            .map_err(|e| e.to_string())?;
+                        let mut sn_buf = vec![0u8; sn_len as usize];
+                        cvt(openssl_sys::i2d_ASN1_INTEGER(sn.as_ptr(), &mut sn_buf.as_mut_ptr()))
+                            .map_err(|e| e.to_string())?;
+                        let signing_cert_bytes = asn1::write(|w| {
+                            w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                    w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                        w.write_element(&certificate_hash.to_vec().as_slice())?;
+                                        w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                            w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                                w.write_tlv(asn1::Tag::from_bytes(&[0xa4]).unwrap().0, |b| {
+                                                    b.push_slice((*sig_info.keys.signing_cert.issuer_name()).to_der().unwrap().as_slice())?;
+                                                    Ok(())
+                                                })
+                                            }))?;
+                                            w.write_element(&asn1::BigInt::new(&sn_buf[2..]))
+                                        }))
+                                    }))
+                                }))
+                            }))
+                        }).map_err(|e| format!("{:?}", e))?;
+                            sig_info.keys.signing_cert.digest(openssl::hash::MessageDigest::sha1()).map_err(|e| e.to_string())?;
+                        let signing_cert_bytes_v1 = asn1::write(|w| {
+                            w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                    w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                        w.write_element(&certificate_hash_sha1.to_vec().as_slice())?;
+                                        w.write_element(&asn1::SequenceWriter::new(&|w| {
+                                            w.write_tlv(asn1::Tag::from_bytes(&[0x4a]).unwrap().0, |b| {
+                                                asn1::Writer::new(b).write_element(&asn1::SequenceWriter::new(&|w| {
+                                                    w.write_tlv(asn1::Sequence::TAG, |b| {
+                                                        b.push_slice((*sig_info.keys.signing_cert.issuer_name()).to_der().unwrap().as_slice())?;
+                                                        Ok(())
+                                                    })
+                                                }))
+                                            })?;
+                                            w.write_element(&asn1::BigInt::new(
+                                                &sig_info.keys.signing_cert.serial_number().to_bn().unwrap().to_vec()
+                                            ))
+                                        }))
+                                    }))
+                                }))
+                            }))
+                        }).map_err(|e| format!("{:?}", e))?;
+                        openssl_sys::CMS_signed_add1_attr_by_OBJ(
+                            si, openssl::asn1::Asn1Object::from_str("1.2.840.113549.1.9.16.2.47").unwrap().as_ptr(),
+                            16, signing_cert_bytes.as_ptr() as *const libc::c_void, signing_cert_bytes.len() as i32
+                        );
                         // openssl_sys::CMS_signed_add1_attr_by_OBJ(
-                        //     si, openssl::asn1::Asn1Object::from_str("1.2.840.113549.1.9.16.2.47").unwrap().as_ptr(),
-                        //     16, signing_cert_bytes.as_ptr() as *const libc::c_void, signing_cert_bytes.len() as i32
+                        //     si, openssl::asn1::Asn1Object::from_str("1.2.840.113549.1.9.16.2.12").unwrap().as_ptr(),
+                        //     16, signing_cert_bytes_v1.as_ptr() as *const libc::c_void, signing_cert_bytes_v1.len() as i32
                         // );
 
                         cvt(openssl_sys::CMS_final(

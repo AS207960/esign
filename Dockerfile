@@ -14,13 +14,8 @@ RUN cargo install --path .
 
 FROM debian:stable-slim
 
-
-RUN apt-get update && apt-get install -y libpq5 ca-certificates p11-kit-modules gnutls-bin wget \
-    libengine-pkcs11-openssl build-essential && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN wget https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-3.6.0.tar.gz \
-    && tar -xf libressl-3.6.0.tar.gz && cd libressl-3.6.0 \
-    && ./configure --prefix=/usr/local/libressl --with-openssldir=/usr/local/libressl \
-    && make && make install
+RUN apt-get update && apt-get install -y libssl1.1 libpq5 ca-certificates p11-kit-modules gnutls-bin \
+    libengine-pkcs11-openssl && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN update-ca-certificates
 
 WORKDIR /as207960-esign
