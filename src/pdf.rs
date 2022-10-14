@@ -56,15 +56,12 @@ struct PDFSpacePos {
 pub struct DocumentPage<'a> {
     page_id: lopdf::ObjectId,
     page: lopdf::Dictionary,
-    inner_content: lopdf::content::Content,
     doc: &'a mut Document,
 }
 
 pub struct InnerDocumentPage<'a: 'b, 'b> {
     page_id: lopdf::ObjectId,
     page: &'b mut lopdf::Dictionary,
-    inner_content: lopdf::content::Content,
-    resources_oid: Option<lopdf::ObjectId>,
     pub doc: &'a mut Document,
 }
 
@@ -280,7 +277,6 @@ impl Document {
         };
 
         Ok(DocumentPage {
-            inner_content: self.inner_doc.get_and_decode_page_content(page_id)?,
             page: self.inner_doc.get_object(page_id).and_then(lopdf::Object::as_dict).unwrap().clone(),
             doc: self,
             page_id,
@@ -429,20 +425,6 @@ impl Document {
         Ok(img_obj_id)
     }
 
-    // fn page_dict(&mut self, page: u32) -> Result<&mut lopdf::Dictionary, lopdf::Error> {
-    //     let page_id = match self.pages.get(&page).map(|o| *o) {
-    //         Some(i) => i,
-    //         None => return Err(lopdf::Error::PageNumberNotFound(page))
-    //     };
-    //
-    //     if !self.new_objects.contains_key(&page_id) {
-    //         let page = self.inner_doc.get_object(page_id).and_then(lopdf::Object::as_dict).unwrap().clone();
-    //         self.new_objects.insert(page_id, page.into());
-    //     }
-    //
-    //     Ok(self.new_objects.get_mut(&page_id).unwrap().as_dict_mut().unwrap())
-    // }
-
     fn png_error_to_lopdf(err: png::DecodingError) -> lopdf::Error {
         match err {
             png::DecodingError::IoError(io) => lopdf::Error::IO(io),
@@ -568,26 +550,12 @@ impl DocumentPage<'_> {
         }
 
         let mut inner = InnerDocumentPage {
-            resources_oid,
-            inner_content: self.inner_content,
             page: &mut self.page,
             page_id: self.page_id,
             doc: self.doc,
         };
         let res = f(&mut inner);
 
-        inner.doc.max_id += 1;
-        let pcid = (inner.doc.max_id, 0);
-        inner.doc.new_objects.insert(
-            pcid,
-            lopdf::Object::Stream(
-                lopdf::Stream::new(
-                    lopdf::dictionary!(),
-                    inner.inner_content.encode()?
-                )
-            ),
-        );
-        inner.page.set("Contents", lopdf::Object::Reference(pcid));
         inner.doc.new_objects.insert(inner.page_id, self.page.into());
 
         Ok(res)
@@ -595,11 +563,30 @@ impl DocumentPage<'_> {
 }
 
 impl InnerDocumentPage<'_, '_> {
-    pub fn resources(&mut self) -> &mut lopdf::Dictionary {
-        match self.resources_oid {
-            Some(oid) => self.doc.new_objects.get_mut(&oid).unwrap(),
-            None => self.page.get_mut(b"Resources").unwrap()
-        }.as_dict_mut().unwrap()
+    fn annotations(&mut self) -> &mut Vec<lopdf::Object> {
+        if self.page.has(b"Annots") {
+            let r = self.page.get_mut(b"Annots").unwrap();
+            if let Ok(r) = r.as_reference() {
+                let o = self.doc.inner_doc.get_object(r).unwrap().clone();
+                self.doc.new_objects.insert(r, o);
+                self.doc.new_objects.get_mut(&r).unwrap()
+            } else {
+                r
+            }
+        } else {
+            self.page.set("Annots", lopdf::Object::Array(vec![]));
+            self.page.get_mut(b"Annots").unwrap()
+        }.as_array_mut().unwrap()
+    }
+
+    fn acro_fields(&mut self) -> Result<&mut Vec<lopdf::Object>, lopdf::Error> {
+        let acro_form = self.doc.acro_form()?;
+        Ok(if acro_form.has(b"Fields") {
+            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        } else {
+            acro_form.set("Fields", lopdf::Object::Array(vec![]));
+            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
+        })
     }
 
     fn get_media_box(&self) -> Result<BoundingBox, lopdf::Error> {
@@ -643,47 +630,32 @@ impl InnerDocumentPage<'_, '_> {
         })
     }
 
-    fn add_xobject<N: Into<Vec<u8>>>(&mut self, xobject_name: N, xobject_id: lopdf::ObjectId) -> Result<(), lopdf::Error> {
-        let resources = self.resources();
-        if !resources.has(b"XObject") {
-            resources.set("XObject", lopdf::Dictionary::new());
-        }
-        let xobjects = resources
-            .get_mut(b"XObject")
-            .and_then(lopdf::Object::as_dict_mut)?;
-        xobjects.set(xobject_name, lopdf::Object::Reference(xobject_id));
-        Ok(())
-    }
-
     pub fn add_text(&mut self, text: &str, top: f64, left: f64, width: f64, height: f64) -> Result<(), lopdf::Error> {
         let pos = self.convert_to_pdf_space(top, left, width, height)?;
+        self.doc.max_id += 1;
+        let aid = (self.doc.max_id, 0);
 
-        self.inner_content.operations.extend(vec![
-            lopdf::content::Operation::new("BT", vec![]),
-            lopdf::content::Operation::new("Tf", vec!["F_as207690_esign_Helvetica".into(), pos.h.into()]),
-            lopdf::content::Operation::new("Td", vec![pos.x.into(), pos.y.into()]),
-            lopdf::content::Operation::new("Tj", vec![lopdf::Object::string_literal(text)]),
-            lopdf::content::Operation::new("ET", vec![]),
-        ]);
+        self.acro_fields()?.push(lopdf::Object::Reference(aid));
 
-        Ok(())
-    }
-
-    pub fn add_png_img(&mut self, img_obj_id: lopdf::ObjectId, top: f64, left: f64, width: f64, height: f64) -> Result<(), lopdf::Error> {
-        let pos = self.convert_to_pdf_space(top, left, width, height)?;
-
-        let img_name = format!("X{}", uuid::Uuid::new_v4());
-        self.add_xobject(img_name.clone(), img_obj_id)?;
-
-        self.inner_content.operations.extend(vec![
-            lopdf::content::Operation::new("q", vec![]),
-            lopdf::content::Operation::new(
-                "cm",
-                vec![pos.w.into(), 0.into(), 0.into(), pos.h.into(), pos.x.into(), pos.y.into()],
+        self.doc.new_objects.insert(aid, dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "FreeText",
+            "Q" => 0,
+            "IT" => "FreeText",
+            "Rect" => lopdf::Object::Array(vec![pos.x.into(), pos.y.into(), (pos.x + pos.w).into(), (pos.h + pos.y).into()]),
+            "P" => lopdf::Object::Reference(self.page_id),
+            "DA" => lopdf::Object::String(
+                format!("/F_as207690_esign_Helvetica {} Tf", pos.h).into_bytes(),
+                lopdf::StringFormat::Literal
             ),
-            lopdf::content::Operation::new("Do", vec![img_name.into()]),
-            lopdf::content::Operation::new("Q", vec![]),
-        ]);
+            "Contents" => lopdf::Object::String(text.into(), lopdf::StringFormat::Literal),
+            "BS" => dictionary! {
+                "Type" => "Border",
+                "W" => 0,
+            },
+        }.into());
+
+        self.annotations().push(lopdf::Object::Reference(aid));
 
         Ok(())
     }
@@ -694,24 +666,14 @@ impl InnerDocumentPage<'_, '_> {
         self.doc.max_id += 1;
         let sid = (self.doc.max_id, 0);
         self.doc.max_id += 1;
-        let slid = (self.doc.max_id, 0);
-        self.doc.max_id += 1;
         let dsid = (self.doc.max_id, 0);
         self.doc.max_id += 1;
         let xoid = (self.doc.max_id, 0);
 
         let acro_form = self.doc.acro_form()?;
-
         acro_form.set("SigFlags", lopdf::Object::Integer(3));
 
-        let acro_fields = if acro_form.has(b"Fields") {
-            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
-        } else {
-            acro_form.set("Fields", lopdf::Object::Array(vec![]));
-            acro_form.get_mut(b"Fields").unwrap().as_array_mut().unwrap()
-        };
-
-        acro_fields.push(lopdf::Object::Reference(sid));
+        self.acro_fields()?.push(lopdf::Object::Reference(sid));
 
         self.doc.new_objects.insert(sid, dictionary! {
             "FT" => "Sig",
@@ -719,7 +681,6 @@ impl InnerDocumentPage<'_, '_> {
             "Subtype" => "Widget",
             "Rect" => lopdf::Object::Array(vec![pos.x.into(), pos.y.into(), (pos.x + pos.w).into(), (pos.h + pos.y).into()]),
             "F" => 132u32,
-            // "Lock" => lopdf::Object::Reference(slid),
             "V" => lopdf::Object::Reference(dsid),
             "T" => lopdf::Object::String(format!("Signature{}", uuid::Uuid::new_v4()).into(), lopdf::StringFormat::Literal),
             "P" => lopdf::Object::Reference(self.page_id),
@@ -727,25 +688,6 @@ impl InnerDocumentPage<'_, '_> {
                 "N" => lopdf::Object::Reference(xoid)
             }
         }.into());
-        self.doc.new_objects.insert(slid, dictionary! {
-            "Type" => "SigFieldLock",
-            "Action" => "All"
-        }.into());
-
-        let mut references: Vec<lopdf::Object> = vec![];
-
-        if sig_info.first_sig {
-            references.push( dictionary! {
-                "Type" => "SigRef",
-                "TransformMethod" => "DocMDP",
-                "DigestMethod" => "SHA1",
-                "TransformParams" => dictionary! {
-                    "Type" => "TransformParams",
-                    "V" => "1.2",
-                    "P" => 3
-                },
-            }.into());
-        }
 
         let mut sig_dict = dictionary! {
             "Type" => "Sig",
@@ -761,7 +703,6 @@ impl InnerDocumentPage<'_, '_> {
                 sig_info.reason.as_deref().unwrap_or("Signed with AS207960 eSign").into(),
                 lopdf::StringFormat::Literal
             ),
-            "Reference" => lopdf::Object::Array(references)
         };
         if let Some(name) = &sig_info.name {
             sig_dict.set("Name", lopdf::Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal));
@@ -807,21 +748,7 @@ impl InnerDocumentPage<'_, '_> {
         }, xobject_commands);
         self.doc.new_objects.insert(xoid, xobject.into());
 
-        let page_1_annotations = if self.page.has(b"Annots") {
-            let r = self.page.get_mut(b"Annots").unwrap();
-            if let Ok(r) = r.as_reference() {
-                let o = self.doc.inner_doc.get_object(r).unwrap().clone();
-                self.doc.new_objects.insert(r, o);
-                self.doc.new_objects.get_mut(&r).unwrap()
-            } else {
-                r
-            }
-        } else {
-            self.page.set("Annots", lopdf::Object::Array(vec![]));
-            self.page.get_mut(b"Annots").unwrap()
-        }.as_array_mut().unwrap();
-
-        page_1_annotations.push(lopdf::Object::Reference(sid));
+        self.annotations().push(lopdf::Object::Reference(sid));
 
         Ok(dsid)
     }
