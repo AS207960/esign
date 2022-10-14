@@ -156,7 +156,7 @@ impl Document {
             lopdf::writer::Writer::write_dictionary(&mut target, &trailer, None, None)?;
         }
 
-        write!(target, "\nstartxref\n{}\n%%EOF", xref_start).unwrap();
+        write!(target, "\nstartxref\n{}\n%%EOF\n", xref_start).unwrap();
 
         if let Some(sig_info) = sig_info {
             let contents_range = *contents_map.get(&sig_info.oid).unwrap();
@@ -417,7 +417,7 @@ impl Document {
             let mut mask_hex_data = hex::encode(&compressed_mask_data);
             mask_hex_data.push('>');
 
-            let mut mask_dict = dictionary! {
+            let mask_dict = dictionary! {
                 "Type" => "XObject",
                 "Subtype" => "Image",
                 "ColorSpace" => "DeviceGray",

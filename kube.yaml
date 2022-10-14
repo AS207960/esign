@@ -210,7 +210,7 @@ spec:
             claimName: esign-files
       containers:
         - name: tasks
-          image: as207960/as207960-esign:30
+          image: as207960/as207960-esign:31
           imagePullPolicy: IfNotPresent
           command: ["/as207960-esign/tasks"]
           resources:

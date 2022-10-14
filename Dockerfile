@@ -12,7 +12,7 @@ COPY src ./src
 COPY migrations ./migrations
 RUN cargo install --path .
 
-FROM debian:stable-slim
+FROM debian:buster-slim
 
 RUN apt-get update && apt-get install -y libssl1.1 libpq5 ca-certificates p11-kit-modules gnutls-bin \
     libengine-pkcs11-openssl && apt-get clean && rm -rf /var/lib/apt/lists/*
